@@ -22,8 +22,22 @@ linkedin | google_search_ads | peer_referral (colleague, other business owner, i
 7. Current Channels( multi select):
 whatsapp | phone_calls | email | instagram | facebook | in_person_only | website_form | other | unclear
 
-8. Client Needs (multi select)
-multi_channel_support | appointment_scheduling | crm_erp_pos_lms_integration | order_shipment_inventory_tracking | extended_24_7_availability | multi_language_support | human_escalation | lead_qualification_sales_pipeline | industry_specific_knowledge (technical, medical, legal, fiscal expertise) | brand_tone_alignment | quote_pricing_calculation | data_privacy_compliance | emergency_urgent_triage | personalized_recommendations | other
+8. Client Needs (multi select):
+multi_channel_support — unify WhatsApp/email/phone/social into one system
+appointment_scheduling — book, confirm, or reschedule appointments
+crm_erp_pos_lms_integration — sync with an existing system of record (CRM/ERP/POS/LMS)
+order_shipment_inventory_tracking — real-time status on orders, stock, or deliveries
+extended_24_7_availability — coverage outside normal business hours
+multi_language_support — serve customers in more than one language
+human_escalation — detect complex/sensitive queries and route to a person
+lead_qualification_sales_pipeline — score or filter prospects before sales contact
+business_knowledge — needs real domain expertise (medical, legal, fiscal, technical) or knowledge of the client's own product/catalogue, not just generic FAQs
+brand_tone_alignment — explicit request about how the bot should sound (elegant, playful, energetic, etc.)
+quote_pricing_calculation — generate a price, budget, or quote from inputs
+data_privacy_compliance — safeguard sensitive data (health, financial, student records)
+emergency_urgent_triage — detect urgency and fast-track response/escalation
+personalized_recommendations — suggest products/services based on stated preferences
+other — any explicit need that doesn't fit the above
 
 9. regulatory Flag (single select)
 health_data | financial_fiscal_data | minors_student_data | none_apparent | other
@@ -45,31 +59,34 @@ you will receive an array of transcripts with their relative ids. Example:
 
 ### Output :
 
-You must reply in json with the following format:
+You will receive an array of transcripts and must reply with a JSON array containing exactly one object per input transcript, in the same order. Reply with the array only — no surrounding text. Format:
 
 ```json
-{
-  "id": 1,
-  "sector": "health_medical",
-  "sub_sector": "dental clinic",
-  "business_model": "b2c",
-  "business_size": "small",
-  "inquiry_volume": "medium",
-  "discovery_channel": "peer_referral",
-  "current_channels": ["phone_calls"],
-  "client_needs": [
-    "appointment_scheduling",
-    "crm_erp_pos_lms_integration",
-    "brand_tone_alignment"
-  ],
-  "regulatory_flag": "health_data",
-  "pain_point_urgency": "medium"
-}
+[
+  {
+    "id": 1,
+    "sector": "health_medical",
+    "sub_sector": "dental clinic",
+    "business_model": "b2c",
+    "business_size": "small",
+    "inquiry_volume": "medium",
+    "discovery_channel": "peer_referral",
+    "current_channels": ["phone_calls"],
+    "client_needs": [
+      "appointment_scheduling",
+      "crm_erp_pos_lms_integration",
+      "brand_tone_alignment"
+    ],
+    "regulatory_flag": "health_data",
+    "pain_point_urgency": "medium"
+  }
+]
 ```
 
 ### Key Things for classification:
 - Inquiry volume math: make sure to normalize everything into the weekly rates ("800/day → ~5600/week → very_high")
 - If unsure about an option, fall back to "Other"
-- The id must be the same as the corresponding transcript id from the input. 
+- Each object's id must be the same as the corresponding transcript id from the input.
+- The output array must contain one object per input transcript — never omit one.
 
 --- 

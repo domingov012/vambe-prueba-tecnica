@@ -1,3 +1,4 @@
+from beanie import PydanticObjectId
 from pydantic import BaseModel
 
 from app.ingestion.csv_loader import parse_csv
@@ -9,6 +10,13 @@ class IngestionSummary(BaseModel):
     rows_processed: int
     clients_created: int
     meetings_created: int
+
+
+class IngestionResult(BaseModel):
+    model_config = {"arbitrary_types_allowed": True}
+
+    summary: IngestionSummary
+    meetings: list[MeetingTranscript]
 
 
 ClientKey = tuple[str, str, str]
@@ -42,7 +50,7 @@ async def _get_or_create_client(
     return new_client, True
 
 
-async def ingest_csv(raw_bytes: bytes) -> IngestionSummary:
+async def ingest_csv(raw_bytes: bytes) -> IngestionResult:
     cache: dict[ClientKey, Client] = {}
     meetings: list[MeetingTranscript] = []
     rows_processed = 0
@@ -56,10 +64,17 @@ async def ingest_csv(raw_bytes: bytes) -> IngestionSummary:
         meetings.append(row_to_meeting(row, client))
 
     if meetings:
-        await MeetingTranscript.insert_many(meetings)
+        result = await MeetingTranscript.insert_many(meetings)
+        # insert_many() doesn't populate ids on the passed-in documents — set them
+        # from the result so callers (e.g. enrichment) can reference these meetings.
+        for meeting, inserted_id in zip(meetings, result.inserted_ids):
+            meeting.id = PydanticObjectId(inserted_id)
 
-    return IngestionSummary(
-        rows_processed=rows_processed,
-        clients_created=clients_created,
-        meetings_created=len(meetings),
+    return IngestionResult(
+        summary=IngestionSummary(
+            rows_processed=rows_processed,
+            clients_created=clients_created,
+            meetings_created=len(meetings),
+        ),
+        meetings=meetings,
     )

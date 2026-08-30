@@ -3,7 +3,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from beanie import init_beanie
 
 from app.config import get_settings
-from app.models import Client, MeetingTranscript
+from app.models import Client, EnhancedTranscript, EnrichmentJob, MeetingTranscript
 
 _client: AsyncIOMotorClient | None = None
 
@@ -14,7 +14,7 @@ async def init_db() -> None:
     _client = AsyncIOMotorClient(settings.mongo_uri)
     await init_beanie(
         database=_client[settings.mongo_db_name],
-        document_models=[Client, MeetingTranscript],
+        document_models=[Client, MeetingTranscript, EnhancedTranscript, EnrichmentJob],
         allow_index_dropping=True,
     )
 

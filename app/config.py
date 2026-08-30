@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     openrouter_model: str = "google/gemma-4-31b-it:free"
     llm_requests_per_minute: int = 20
     llm_max_retries: int = 5
+    llm_batch_size: int = 10
+    llm_max_transcripts_per_job: int = 100
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
