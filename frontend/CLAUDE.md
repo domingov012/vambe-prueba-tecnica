@@ -51,31 +51,28 @@ frontend/
 - **No premature abstraction.** No state library, no API client layer, no
   component framework until a second real use needs it.
 
-## Backend wiring (not done yet)
+## Backend wiring
 
-Everything is client-side placeholder right now. To connect to the FastAPI
-backend:
+**Data Upload is wired; Dashboard is still placeholder.**
 
-1. **Dev proxy** — uncomment the `server.proxy` block in `vite.config.js` so
-   `/api/*` forwards to `http://localhost:8000`. Then all frontend fetches use
-   relative `/api/...` URLs (no CORS config needed in dev).
+- **Transport** — relative `/api/*` URLs everywhere (`src/api.js`). The vite dev
+  server proxies `/api` → `http://localhost:8000` (`VITE_API_TARGET` overrides);
+  in prod nginx serves the static build and proxies `/api` to the backend
+  container. Backend routers are mounted under `/api` (see `app/main.py`). No
+  CORS config in either environment.
 
-2. **API module** — add `src/api.js` with thin `fetch` wrappers, e.g.
-   `uploadCsv(file)`, `listJobs()`, `getJob(id)`, `getDashboardStats()`. Keep it
-   the only place that knows URL paths and response shapes. This is the "second
-   concrete use" that justifies the module — don't inline `fetch` in pages.
+- **Progress updates use polling, not websockets** — `upload.js` polls
+  `GET /api/jobs` every 2s while any job is `queued`/`running`, stops on
+  all-terminal, restarts after an upload. Job progress only advances once per
+  LLM batch, so a 2s poll is visually indistinguishable from pushed events and
+  needs no connection/reconnect machinery. Revisit only if we add token
+  streaming or many concurrent viewers.
 
-3. **Data Upload page** (`src/pages/upload.js`):
-   - Replace the `startBtn` click handler: `POST /api/ingestion` (or the real
-     ingestion route) with `FormData` containing the CSV file. On success, the
-     backend returns a job id — refresh the jobs list.
-   - Replace `MOCK_JOBS` + the `setInterval` simulation with a poll of
-     `GET /api/jobs` (every ~2–3s while any job is `running`/`queued`; stop when
-     all terminal). Map the backend job status enum to the `.badge--*` classes.
-   - Keep the client-side `.csv` extension check as a fast pre-validation; the
-     backend still does the authoritative column/format validation.
+- **`src/api.js`** — `uploadCsv(file)`, `listJobs()`, `getJob(id)`. The only
+  place that knows URL paths and response shapes; add `getDashboardStats()` here
+  when wiring the dashboard.
 
-4. **Dashboard page** (`src/pages/dashboard.js`):
+Still to do — **Dashboard page** (`src/pages/dashboard.js`):
    - Replace the `PLACEHOLDER` object with one `getDashboardStats()` call in
      `renderDashboardPage`, then feed the response into the existing `CHARTS`
      specs (each spec's `build(data)` already isolates the data-shape mapping —
@@ -85,13 +82,16 @@ backend:
      transcripts yet") — the aggregation endpoints return nothing until at least
      one enhancement job has completed.
 
-5. **Backend endpoints expected** (align names with `app/api/routes/` as they
-   land):
-   - `POST /api/ingestion` — multipart CSV upload → `{ job_id }`
-   - `GET  /api/jobs` — list enhancement jobs with progress
+**Backend endpoints:**
+   - `POST /api/ingestion/csv` — multipart CSV upload →
+     `{ summary, enrichment_job_id }` (job id is null when nothing to enrich)
+   - `GET  /api/jobs` — list enrichment jobs, newest first; each has
+     `_id` (Beanie serializes the id under its `_id` alias), `filename`,
+     `status`, `total_candidates`, `processed_count`, `failed_count`,
+     `error`, `created_at`
    - `GET  /api/jobs/{id}` — single job detail
-   - `GET  /api/dashboard/...` — aggregation results backing the charts
-     (see `app/aggregation/` in the backend)
+   - `GET  /api/dashboard/...` — *(not built yet)* aggregation results backing
+     the charts (see `app/aggregation/` in the backend)
 
 ## Notes for future changes
 

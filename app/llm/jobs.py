@@ -45,6 +45,7 @@ async def enqueue_enrichment_job(
     meeting_ids: list[PydanticObjectId],
     batch_size: int | None = None,
     max_transcripts: int | None = None,
+    filename: str | None = None,
 ) -> EnrichmentJob:
     if _queue is None:
         raise RuntimeError("Enrichment worker not started — call start_worker() first")
@@ -54,7 +55,11 @@ async def enqueue_enrichment_job(
     max_transcripts = max_transcripts or settings.llm_max_transcripts_per_job
     candidate_ids = meeting_ids[:max_transcripts]
 
-    job = EnrichmentJob(batch_size=batch_size, total_candidates=len(candidate_ids))
+    job = EnrichmentJob(
+        batch_size=batch_size,
+        total_candidates=len(candidate_ids),
+        filename=filename,
+    )
     await job.insert()
 
     if candidate_ids:

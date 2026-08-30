@@ -29,6 +29,7 @@ async def upload_csv(
             meeting_ids=[m.id for m in result.meetings],
             batch_size=batch_size,
             max_transcripts=max_transcripts,
+            filename=file.filename,
         )
 
     return IngestionResponse(

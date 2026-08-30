@@ -14,6 +14,7 @@ class JobStatus(str, Enum):
 
 class EnrichmentJob(Document):
     status: JobStatus = JobStatus.queued
+    filename: str | None = None
     batch_size: int
     total_candidates: int
     processed_count: int = 0
