@@ -7,9 +7,17 @@ class Settings(BaseSettings):
     mongo_uri: str = "mongodb://localhost:27017"
     mongo_db_name: str = "vambe"
 
+    # "openrouter" or "google" (Google Developer API — Gemini/Gemma direct)
+    llm_provider: str = "openrouter"
+
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_model: str = "google/gemma-4-31b-it:free"
+
+    google_api_key: str = ""
+    google_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
+    google_model: str = "gemma-3-27b-it"
+
     llm_requests_per_minute: int = 20
     llm_max_retries: int = 5
     llm_batch_size: int = 10

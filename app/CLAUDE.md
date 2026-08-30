@@ -19,7 +19,8 @@ app/
 │   ├── mappers.py
 │   └── service.py
 ├── llm/
-│   ├── client.py             # init_llm_client()/close_llm_client() + chat_completion(messages) -> str, via OpenRouter
+│   ├── client.py             # public surface: init_llm_client()/close_llm_client() + chat_completion(messages) -> str; dispatches to a provider
+│   ├── providers/            # one module per backend (openrouter.py, google.py), same init()/close()/chat_completion() contract + shared base.py
 │   └── processors/           # transcript enrichment logic (prompt + parsing), isolated from the LLM client itself
 ├── aggregation/               # query/aggregation logic backing the GET endpoints
 └── api/routes/                 # thin FastAPI routers — parse request, call a service/aggregator, return response
@@ -35,7 +36,9 @@ app/
 
 ## LLM calling (for the upcoming enrichment step)
 
-- Model: `google/gemma-4-31b-it:free` via OpenRouter (config in `app/config.py`, key in `.env`). Swappable via `OPENROUTER_MODEL` — no code change needed.
-- `llm/client.py` already rate-limits (20 req/min default, matching OpenRouter's free-tier cap) and retries 429/5xx with backoff. Callers just await `chat_completion(messages)`.
+- Two providers, selected by `LLM_PROVIDER` (`openrouter` default, or `google` for the Google Developer API — Gemini/Gemma direct). Same `chat_completion(messages) -> str` contract either way; callers don't branch on provider.
+  - `openrouter`: `OPENROUTER_MODEL` (default `google/gemma-4-31b-it:free`), `OPENROUTER_API_KEY`.
+  - `google`: `GOOGLE_MODEL` (default `gemma-3-27b-it`), `GOOGLE_API_KEY`. Switch here when OpenRouter's shared free pool throttles too hard. Gemma on the Google API takes no `system` role, so `providers/google.py` folds system text into the first user turn.
+- Each provider rate-limits (`LLM_REQUESTS_PER_MINUTE`, 20/min default) and retries 429/5xx with backoff. Callers just await `chat_completion(messages)`.
 - The free Gemma pool can 429 at an **upstream shared-pool** level (all OpenRouter free users, not just our account) — seen intermittently in testing, unrelated to our own rate limit. A long batch job (10k rows) should tolerate extended stalls beyond the built-in retries, not just treat a failure as fatal.
 - `Transcripcion` rows average ~130 tokens — token/context limits are a non-issue; **request count** is the real constraint on the free tier. Batch multiple transcripts per request to cut request count, rather than one call per transcript.

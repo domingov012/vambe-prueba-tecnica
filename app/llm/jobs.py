@@ -6,7 +6,7 @@ from beanie import PydanticObjectId
 from beanie.operators import In
 
 from app.config import get_settings
-from app.llm.client import OpenRouterError
+from app.llm.client import LLMError
 from app.llm.processors.transcript_enrichment import enrich_batch
 from app.models.enhanced_transcript import EnhancedTranscript, enrichment_key
 from app.models.job import EnrichmentJob, JobStatus
@@ -134,14 +134,15 @@ async def _run_job(job_id: PydanticObjectId, meeting_ids: list[PydanticObjectId]
 async def _enrich_with_stall_tolerance(
     items: list[tuple[str, MeetingTranscript]],
 ) -> list[EnhancedTranscript]:
-    """enrich_batch(), but an upstream-shared-pool 429 (beyond chat_completion's own
-    retries) stalls this batch with backoff instead of failing the whole job — a
-    10k-row job should survive an extended free-tier outage, not abort on one."""
+    """enrich_batch(), but a provider 429 that outlasts chat_completion's own
+    retries (e.g. OpenRouter's shared free pool, or a Google free-tier daily cap)
+    stalls this batch with backoff instead of failing the whole job — a 10k-row
+    job should survive an extended free-tier outage, not abort on one."""
     delay = _STALL_INITIAL_DELAY
     while True:
         try:
             return await enrich_batch(items)
-        except OpenRouterError:
+        except LLMError:
             logger.warning("Upstream stall enriching batch, retrying in %.0fs", delay)
             await asyncio.sleep(delay)
             delay = min(delay * 2, _STALL_MAX_DELAY)
