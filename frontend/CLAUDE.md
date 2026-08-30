@@ -26,11 +26,15 @@ frontend/
     ├── main.js             # bootstrap: renders nav, creates router outlet, registers routes
     ├── router.js           # minimal hash router: registerRoute / startRouter / navigate
     ├── style.css           # global dark theme + all component styles (no CSS modules)
+    ├── format.js            # humanize / percent / relativeTime / isStale helpers (dashboard)
     ├── components/
-    │   └── nav.js           # persistent top nav, rendered once outside the router outlet
+    │   ├── nav.js           # persistent top nav, rendered once outside the router outlet
+    │   ├── closeRateBarChart.js  # reusable "close rate by <dimension>" bar chart
+    │   └── heatmap.js       # reusable HTML cross-tab heatmap (sector×need, size×need, rep×sector)
     └── pages/
         ├── upload.js        # Data Upload page
-        └── dashboard.js     # Dashboard page (scaffold, placeholder data)
+        ├── dashboard.js     # Dashboard page (wired to /api/dashboard/insights)
+        └── dashboard.sample.js  # synthetic insights payload for the "sample data" mode
 ```
 
 ## Conventions
@@ -53,7 +57,7 @@ frontend/
 
 ## Backend wiring
 
-**Data Upload is wired; Dashboard is still placeholder.**
+**Data Upload and Dashboard are both wired.**
 
 - **Transport** — relative `/api/*` URLs everywhere (`src/api.js`). The vite dev
   server proxies `/api` → `http://localhost:8000` (`VITE_API_TARGET` overrides);
@@ -68,19 +72,29 @@ frontend/
   needs no connection/reconnect machinery. Revisit only if we add token
   streaming or many concurrent viewers.
 
-- **`src/api.js`** — `uploadCsv(file)`, `listJobs()`, `getJob(id)`. The only
-  place that knows URL paths and response shapes; add `getDashboardStats()` here
-  when wiring the dashboard.
+- **`src/api.js`** — `uploadCsv(file)`, `listJobs()`, `getJob(id)`,
+  `getDashboardInsights()`. The only place that knows URL paths and response
+  shapes. `request()` attaches `err.status` so callers can tell a 404 (no data
+  computed yet) from a real failure.
 
-Still to do — **Dashboard page** (`src/pages/dashboard.js`):
-   - Replace the `PLACEHOLDER` object with one `getDashboardStats()` call in
-     `renderDashboardPage`, then feed the response into the existing `CHARTS`
-     specs (each spec's `build(data)` already isolates the data-shape mapping —
-     adjust those functions to the real aggregation response keys).
-   - Remove the "Scaffold — placeholder data" `.empty-note` banner.
-   - Add a loading state and an error/empty state (e.g. "no processed
-     transcripts yet") — the aggregation endpoints return nothing until at least
-     one enhancement job has completed.
+- **Dashboard** (`src/pages/dashboard.js`) — one fetch of
+  `GET /api/dashboard/insights`, one loading state, ~14 chart sections rendered
+  from the precomputed payload (no per-chart fetching, no client-side
+  aggregation — see `aggregations.md`). `SPECS` lists each chart: payload key,
+  title, whether it spans the full grid width, and a `render(container, data)`
+  fn returning a cleanup. Shared chart shapes live in
+  `components/closeRateBarChart.js` and `components/heatmap.js`, mirroring the
+  backend's `close_rate_by_dimension` / `needs_matrix` aggregation boundaries.
+  - **States**: skeleton placeholders on mount → charts on success (with
+    "Data as of {relative}" + a staleness note past 24h); a single
+    dashboard-level error with Retry on fetch failure; a per-chart
+    "Not enough data yet." note when an individual payload key is empty.
+  - **Sample mode**: the DB is empty and the endpoint 404s, so the page starts
+    in "sample data" mode — every chart rendered against the synthetic payload
+    in `dashboard.sample.js` (shapes/sort match the backend exactly). "Try live
+    data" switches to the real endpoint; the error/empty states also offer
+    "Preview with sample data". Delete the `load({ sample: true })` default (drop
+    to `load({ sample: false })`) once real data flows.
 
 **Backend endpoints:**
    - `POST /api/ingestion/csv` — multipart CSV upload →
@@ -90,8 +104,9 @@ Still to do — **Dashboard page** (`src/pages/dashboard.js`):
      `status`, `total_candidates`, `processed_count`, `failed_count`,
      `error`, `created_at`
    - `GET  /api/jobs/{id}` — single job detail
-   - `GET  /api/dashboard/...` — *(not built yet)* aggregation results backing
-     the charts (see `app/aggregation/` in the backend)
+   - `GET  /api/dashboard/insights` — all chart datasets in one precomputed blob
+     (`{ <14 dataset keys>, computed_at }`); 404 until an enrichment job has
+     completed. Shape documented in `aggregations.md`.
 
 ## Notes for future changes
 

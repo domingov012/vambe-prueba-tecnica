@@ -23,7 +23,9 @@ async function request(path, options) {
     } catch {
       /* non-JSON error body — keep statusText */
     }
-    throw new Error(detail);
+    const err = new Error(detail);
+    err.status = res.status; // lets callers distinguish 404 (no data yet) from real failures
+    throw err;
   }
 
   return res.status === 204 ? null : res.json();
@@ -44,4 +46,11 @@ export function listJobs() {
 // GET a single enrichment job by id.
 export function getJob(id) {
   return request(`/jobs/${id}`);
+}
+
+// GET the precomputed dashboard payload — all 10 chart datasets in one object
+// (see aggregations.md for the shape). Throws with `.status === 404` until at
+// least one enrichment job has completed and the blob has been built.
+export function getDashboardInsights() {
+  return request('/dashboard/insights');
 }

@@ -217,6 +217,10 @@ body {
   padding: 18px;
 }
 
+.chart-card--wide {
+  grid-column: 1 / -1;
+}
+
 .chart-card h3 {
   margin: 0 0 14px;
   font-size: 14px;
@@ -226,6 +230,115 @@ body {
 .chart-card__canvas-wrap {
   position: relative;
   height: 240px;
+}
+
+.chart-card__canvas-wrap--tall {
+  height: 340px;
+}
+
+/* ---- Dashboard status line ---- */
+.dashboard-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  margin-bottom: 20px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.dashboard-status__actions {
+  display: inline-flex;
+  gap: 10px;
+}
+
+.dashboard-status--warn {
+  color: var(--warn);
+}
+
+.dashboard-status--error {
+  color: var(--err);
+}
+
+.dashboard-status--sample,
+.dashboard-status--info {
+  padding: 12px 14px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.btn--sm {
+  padding: 5px 12px;
+  font-size: 12px;
+}
+
+/* ---- Skeleton loading ---- */
+.skeleton {
+  display: block;
+  border-radius: 8px;
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--border) 37%, var(--surface-2) 63%);
+  background-size: 400% 100%;
+  animation: skeleton-pulse 1.4s ease infinite;
+}
+
+.skeleton--text {
+  height: 13px;
+  width: 180px;
+}
+
+.skeleton--block {
+  height: 240px;
+}
+
+.skeleton--block-wide {
+  height: 300px;
+}
+
+@keyframes skeleton-pulse {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
+/* ---- Heatmap (cross-tab charts) ---- */
+.heatmap-scroll {
+  overflow-x: auto;
+}
+
+.heatmap {
+  border-collapse: separate;
+  border-spacing: 2px;
+  font-size: 11px;
+}
+
+.heatmap th {
+  color: var(--text-dim);
+  font-weight: 500;
+  padding: 4px 6px;
+  white-space: nowrap;
+}
+
+.heatmap thead th span {
+  display: inline-block;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.heatmap tbody th {
+  text-align: right;
+  position: sticky;
+  left: 0;
+  background: var(--surface);
+}
+
+.heatmap td {
+  text-align: center;
+  min-width: 34px;
+  padding: 6px 4px;
+  border-radius: 4px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
 }
 
 .hint {
