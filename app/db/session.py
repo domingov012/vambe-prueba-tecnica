@@ -15,6 +15,7 @@ async def init_db() -> None:
     await init_beanie(
         database=_client[settings.mongo_db_name],
         document_models=[Client, MeetingTranscript],
+        allow_index_dropping=True,
     )
 
 
