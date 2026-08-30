@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from beanie import PydanticObjectId
 from beanie.operators import In
 
+from app.aggregation.insights import recompute_insights
 from app.config import get_settings
 from app.llm.client import LLMError
 from app.llm.processors.transcript_enrichment import enrich_batch
@@ -129,6 +130,14 @@ async def _run_job(job_id: PydanticObjectId, meeting_ids: list[PydanticObjectId]
     job.status = JobStatus.completed
     job.updated_at = datetime.now(timezone.utc)
     await job.save()
+
+    # New classifications landed — refresh the precomputed dashboard payload so
+    # the cache never silently goes stale relative to enhanced_transcripts.
+    # A failure here must not fail the (already-completed) enrichment job.
+    try:
+        await recompute_insights()
+    except Exception:
+        logger.exception("Dashboard insights recompute failed after job %s", job_id)
 
 
 async def _enrich_with_stall_tolerance(

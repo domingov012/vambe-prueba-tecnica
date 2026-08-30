@@ -69,7 +69,15 @@ async def enrich_batch(items: list[tuple[str, MeetingTranscript]]) -> list[Enhan
         key, meeting = matched
         try:
             fields = {name: entry[name] for name in _ENHANCED_FIELDS}
-            results.append(EnhancedTranscript(id=key, meeting=meeting, **fields))
+            results.append(
+                EnhancedTranscript(
+                    id=key,
+                    meeting=meeting,
+                    closed=meeting.closed,
+                    salesperson=meeting.salesperson,
+                    **fields,
+                )
+            )
         except (KeyError, ValidationError) as exc:
             logger.warning("Skipping invalid enrichment result for id=%s: %s", entry.get("id"), exc)
 

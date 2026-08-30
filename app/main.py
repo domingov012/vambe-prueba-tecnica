@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.api.routes import ingestion, jobs
+from app.api.routes import dashboard, ingestion, jobs
 from app.db.session import close_db, init_db
 from app.llm.client import close_llm_client, init_llm_client
 from app.llm.jobs import start_worker, stop_worker
@@ -22,6 +22,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 app.include_router(ingestion.router, prefix="/api")
 app.include_router(jobs.router, prefix="/api")
+app.include_router(dashboard.router, prefix="/api")
 
 
 @app.get("/")

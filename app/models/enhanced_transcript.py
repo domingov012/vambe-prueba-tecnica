@@ -112,6 +112,7 @@ class PainPointUrgency(str, Enum):
 class EnhancedTranscript(Document):
     id: str
     meeting: Link[MeetingTranscript]
+    # LLM-inferred classification
     sector: IndustryBucket
     sub_sector: str
     business_model: BusinessModel
@@ -122,6 +123,12 @@ class EnhancedTranscript(Document):
     client_needs: list[ClientNeed]
     regulatory_flag: RegulatoryFlag
     pain_point_urgency: PainPointUrgency
+    # Denormalized from the source MeetingTranscript at enrichment time. Both are
+    # immutable source-of-truth fields (never LLM-inferred, never edited), so
+    # copying them here lets every dashboard aggregation read a single collection
+    # with no join. See app/aggregation/rows.py.
+    closed: bool
+    salesperson: str
 
     class Settings:
         name = "enhanced_transcripts"

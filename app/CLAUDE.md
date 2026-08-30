@@ -22,9 +22,29 @@ app/
 │   ├── client.py             # public surface: init_llm_client()/close_llm_client() + chat_completion(messages) -> str; dispatches to a provider
 │   ├── providers/            # one module per backend (openrouter.py, google.py), same init()/close()/chat_completion() contract + shared base.py
 │   └── processors/           # transcript enrichment logic (prompt + parsing), isolated from the LLM client itself
-├── aggregation/               # query/aggregation logic backing the GET endpoints
+├── aggregation/               # dashboard aggregation logic (precomputed insights payload)
+│   ├── rows.py                 # EnhancedTranscript -> flat TranscriptRow list (single-collection scan)
+│   └── insights.py             # 10 chart datasets, recompute_insights() upserts the cached blob
 └── api/routes/                 # thin FastAPI routers — parse request, call a service/aggregator, return response
 ```
+
+## Dashboard insights
+
+- **One precomputed endpoint, not one per chart.** `GET /api/dashboard/insights` returns all 10 chart
+  datasets + `computed_at` from a single cached blob (`DashboardInsights`, `_id="latest"`). No live
+  aggregation in the request path; sends an `ETag` (from `computed_at`) so an unchanged payload is a 304.
+- **Recompute triggers:** automatically at the end of every enrichment job (`llm/jobs.py`), and manually
+  via `POST /api/dashboard/insights/recompute`. `GET /api/dashboard/insights/status` reports staleness.
+  Recompute is `_id`-upsert (`save()`) + guarded by an `asyncio.Lock`, so concurrent triggers coalesce.
+- **`closed` / `salesperson` are denormalized onto `EnhancedTranscript`** at enrichment time — immutable
+  source fields, never LLM-inferred — so the aggregation reads a single collection with no join.
+- **Duplicates need no runtime filtering.** Reworded near-duplicates share the tuple
+  `(name, email, phone_number, meeting_date)`, which *is* `EnhancedTranscript._id` (`enrichment_key()`);
+  the primary key guarantees one enhanced row per duplicate group. Multi-selects (`client_needs`,
+  `current_channels`) are flattened in application code (`rows.py` docstring explains the app- vs.
+  query-layer choice and when to revisit).
+- Two generic functions back most charts: `close_rate_by_dimension()` (#1×3, #5, #7, #9) and
+  `needs_matrix()` (#8, #10).
 
 ## Conventions
 
