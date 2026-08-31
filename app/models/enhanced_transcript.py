@@ -3,6 +3,7 @@ from datetime import date
 from enum import Enum
 
 from beanie import Document, Link
+from pydantic import BaseModel
 
 from app.models.meeting import MeetingTranscript
 
@@ -72,6 +73,10 @@ class Channel(str, Enum):
     facebook = "facebook"
     in_person_only = "in_person_only"
     website_form = "website_form"
+    support_tickets= "support_tickets"
+    delivery_apps = "delivery_apps"
+    web_chat = "web_chat"
+    other_social_media_dms = "other_social_media_dms"
     other = "other"
     unclear = "unclear"
 
@@ -109,10 +114,15 @@ class PainPointUrgency(str, Enum):
     unclear = "unclear"
 
 
-class EnhancedTranscript(Document):
-    id: str
-    meeting: Link[MeetingTranscript]
-    # LLM-inferred classification
+class TranscriptClassification(BaseModel):
+    """The LLM-inferred classification of one transcript — exactly the fields the
+    model is asked to produce, with nothing that comes from the source row.
+
+    Split out from `EnhancedTranscript` so `enrich_batch()` can parse/validate a
+    model response before any Client/MeetingTranscript exists to attach it to
+    (the enrichment job creates those only for transcripts the LLM classified).
+    """
+
     sector: IndustryBucket
     sub_sector: str
     business_model: BusinessModel
@@ -123,6 +133,11 @@ class EnhancedTranscript(Document):
     client_needs: list[ClientNeed]
     regulatory_flag: RegulatoryFlag
     pain_point_urgency: PainPointUrgency
+
+
+class EnhancedTranscript(Document, TranscriptClassification):
+    id: str
+    meeting: Link[MeetingTranscript]
     # Denormalized from the source MeetingTranscript at enrichment time. Both are
     # immutable source-of-truth fields (never LLM-inferred, never edited), so
     # copying them here lets every dashboard aggregation read a single collection

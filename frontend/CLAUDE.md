@@ -98,11 +98,13 @@ frontend/
 
 **Backend endpoints:**
    - `POST /api/ingestion/csv` — multipart CSV upload →
-     `{ summary, enrichment_job_id }` (job id is null when nothing to enrich)
+     `{ summary: { rows_received }, enrichment_job_id }`. The endpoint only
+     validates + queues; de-dup, the cap and all DB writes happen in the job.
    - `GET  /api/jobs` — list enrichment jobs, newest first; each has
      `_id` (Beanie serializes the id under its `_id` alias), `filename`,
-     `status`, `total_candidates`, `processed_count`, `failed_count`,
-     `error`, `created_at`
+     `status`, `rows_in_file`, `skipped_existing`, `total_candidates`
+     (0 until the job starts running — rows sent to the LLM after de-dup + cap),
+     `processed_count`, `failed_count`, `error`, `created_at`
    - `GET  /api/jobs/{id}` — single job detail
    - `GET  /api/dashboard/insights` — all chart datasets in one precomputed blob
      (`{ <14 dataset keys>, computed_at }`); 404 until an enrichment job has

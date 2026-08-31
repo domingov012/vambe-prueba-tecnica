@@ -19,8 +19,8 @@ low (<100/week) | medium (100–500/week) | high (500–1500/week) | very_high (
 6. Discovery Channel (single select):
 linkedin | google_search_ads | peer_referral (colleague, other business owner, industry contact) | industry_event_conference | webinar | podcast | social_media (Instagram/Facebook/TikTok/youtube) | blog_magazine_article | word_of_mouth_group (e.g. WhatsApp group) | email_marketing | other | unclear
 
-7. Current Channels( multi select):
-whatsapp | phone_calls | email | instagram | facebook | in_person_only | website_form | other | unclear
+7. Current Channels (multi select):
+whatsapp | phone_calls | email | instagram | facebook | in_person_only | website_form | support_tickets | delivery_apps | web_chat | other_social_media_dms | other | unclear
 
 8. Client Needs (multi select):
 multi_channel_support — unify WhatsApp/email/phone/social into one system

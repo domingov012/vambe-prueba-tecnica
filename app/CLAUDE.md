@@ -14,10 +14,10 @@ app/
 ├── db/
 │   ├── session.py           # init_db()/close_db(), Motor client + init_beanie()
 │   └── repositories/         # data-access helpers, as query logic grows past simple find/insert
-├── ingestion/               # CSV → validated rows → Client/MeetingTranscript instances
-│   ├── csv_loader.py
-│   ├── mappers.py
-│   └── service.py
+├── ingestion/               # CSV → validated ParsedRows; bulk Client/MeetingTranscript writes
+│   ├── csv_loader.py          # bytes → dict rows + header validation
+│   ├── mappers.py             # dict row → ParsedRow (normalized, frozen)
+│   └── service.py             # get_or_create_clients() / insert_meetings() — bulk, no per-row round trips
 ├── llm/
 │   ├── client.py             # public surface: init_llm_client()/close_llm_client() + chat_completion(messages) -> str; dispatches to a provider
 │   ├── providers/            # one module per backend (openrouter.py, google.py), same init()/close()/chat_completion() contract + shared base.py
@@ -46,19 +46,43 @@ app/
 - Two generic functions back most charts: `close_rate_by_dimension()` (#1×3, #5, #7, #9) and
   `needs_matrix()` (#8, #10).
 
+## Enrichment pipeline
+
+`POST /api/ingestion/csv` does **not** persist anything itself. It parses + validates the whole
+file into `ParsedRow`s (a bad row → 422) and hands them to `enqueue_enrichment_job()`; the rows
+ride the in-memory queue. `llm/jobs.py::_run_job` then, in order:
+
+1. collapses rows sharing an `enrichment_key` (`(name,email,phone,meeting_date)` hash);
+2. drops keys already in `enhanced_transcripts` (one projected `$in` lookup);
+3. caps to `max_transcripts` (`LLM_MAX_TRANSCRIPTS_PER_JOB`, default 100) — free-tier request
+   count is the binding constraint;
+4. per `batch_size` chunk: one LLM call, then **for the transcripts the model returned**,
+   bulk-writes `Client` (get-or-create), `MeetingTranscript`, `EnhancedTranscript` together in a
+   **single MongoDB transaction** (`_persist_classified`) — all three land or none do.
+
+So `clients` / `meeting_transcripts` only ever gain rows that were actually classified, and never
+a `MeetingTranscript` without its `EnhancedTranscript`. A restart mid-job loses in-flight progress;
+re-uploading the same file resumes cleanly because step 2 skips whatever already landed (and the
+transaction guarantees a key is either fully present or fully absent, never half-written). The
+transaction spans only the local writes — the LLM call is already done — so it stays well inside
+the commit window. Needs a replica set (Atlas is one); a standalone `mongod` can't do transactions.
+
 ## Conventions
 
 - **One responsibility per subpackage.** `ingestion`, `db`, `llm`, `aggregation`, `api` don't reach into each other's internals — they compose through plain function calls (e.g. a route calls `ingestion.service.ingest_csv`, never touches CSV parsing directly).
 - **Routes stay thin.** No business logic in `api/routes/*` — validate input, call a service/aggregator, map errors to HTTP responses.
 - **Models are Beanie `Document`s in `models/`.** These are the only schema definitions — no separate DTO/schema duplication unless an endpoint genuinely needs a different shape than the stored document.
 - **No premature abstraction.** Don't add a repository/service layer, config option, or interface until there's a second concrete use that needs it. Empty stub directories (`db/repositories`, `llm/processors`) exist because the structure was agreed on, not because they need content yet — fill them when a real need shows up.
-- **Business rules belong next to the logic they govern**, not in routes. E.g. client dedup (match on `name` + `email` + `phone_number`) lives in `ingestion/service.py` and is mirrored by a compound unique index on `Client`, not re-implemented per caller.
+- **Business rules belong next to the logic they govern**, not in routes. E.g. client dedup (match on `name` + `email` + `phone_number`) lives in `ingestion/service.py::get_or_create_clients` and is mirrored by a compound unique index on `Client`, not re-implemented per caller. Dedup is **bulk** — one `$in` read + one `insert_many` per batch, never a query per row (a per-row loop against a remote cluster is what made 10k-row uploads crash).
 
 ## LLM calling (for the upcoming enrichment step)
 
 - Two providers, selected by `LLM_PROVIDER` (`openrouter` default, or `google` for the Google Developer API — Gemini/Gemma direct). Same `chat_completion(messages) -> str` contract either way; callers don't branch on provider.
   - `openrouter`: `OPENROUTER_MODEL` (default `google/gemma-4-31b-it:free`), `OPENROUTER_API_KEY`.
-  - `google`: `GOOGLE_MODEL` (default `gemma-3-27b-it`), `GOOGLE_API_KEY`. Switch here when OpenRouter's shared free pool throttles too hard. Gemma on the Google API takes no `system` role, so `providers/google.py` folds system text into the first user turn.
-- Each provider rate-limits (`LLM_REQUESTS_PER_MINUTE`, 20/min default) and retries 429/5xx with backoff. Callers just await `chat_completion(messages)`.
-- The free Gemma pool can 429 at an **upstream shared-pool** level (all OpenRouter free users, not just our account) — seen intermittently in testing, unrelated to our own rate limit. A long batch job (10k rows) should tolerate extended stalls beyond the built-in retries, not just treat a failure as fatal.
-- `Transcripcion` rows average ~130 tokens — token/context limits are a non-issue; **request count** is the real constraint on the free tier. Batch multiple transcripts per request to cut request count, rather than one call per transcript.
+  - `google`: `GOOGLE_MODEL` (default `gemma-4-31b-it`), `GOOGLE_API_KEY`. Switch here when OpenRouter's shared free pool throttles too hard. Gemma on the Google API takes no `system` role, so `providers/google.py` folds system text into the first user turn; it also drops `"thought": true` reasoning parts, returning only the answer text.
+- Each provider rate-limits (`LLM_REQUESTS_PER_MINUTE`, 20/min default) and, via the shared
+  `base.post_with_retries`, retries **429, 5xx *and* transport errors** (read timeout, dropped
+  connection) with backoff up to `LLM_MAX_RETRIES`, then raises `LLMError`. Per-request HTTP
+  timeout is `LLM_REQUEST_TIMEOUT_SECONDS` (120s). Callers just await `chat_completion(messages)`.
+- The free Gemma pool can 429 at an **upstream shared-pool** level (all OpenRouter free users, not just our account) — seen intermittently in testing, unrelated to our own rate limit. And `generateContent` is non-streaming, so a slow batch can outlast the HTTP timeout and surface as `httpx.ReadTimeout`. `jobs._enrich_with_stall_tolerance` absorbs both: it retries an `LLMError` batch with escalating backoff for up to `_STALL_MAX_ELAPSED` (30 min), then gives up — that batch's transcripts stay unenriched (`failed_count`) and the job still completes; a later re-upload retries just them.
+- `Transcripcion` rows average ~130 tokens — token/context limits are a non-issue; **request count** is the real constraint on the free tier. Batch multiple transcripts per request (`LLM_BATCH_SIZE`, 10) to cut request count — but too large a batch makes each `generateContent` slow enough to time out, so that's the knob to turn down first if batches start timing out.

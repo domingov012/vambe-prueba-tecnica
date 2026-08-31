@@ -117,14 +117,10 @@ export function renderUploadPage(mount) {
     syncButtons();
 
     try {
-      const { summary, enrichment_job_id } = await uploadCsv(selectedFile);
-      const started = enrichment_job_id
-        ? ' Enrichment job started.'
-        : ' No new transcripts to enrich.';
+      const { summary } = await uploadCsv(selectedFile);
       uploadResult.innerHTML = `<p class="hint" style="color:var(--ok)">
-        Ingested ${summary.rows_processed.toLocaleString()} rows —
-        ${summary.clients_created.toLocaleString()} new clients,
-        ${summary.meetings_created.toLocaleString()} meetings.${started}</p>`;
+        Received ${summary.rows_received.toLocaleString()} rows — enrichment job started.
+        Track progress below.</p>`;
       fileInput.value = '';
       selectedFile = null;
       fileInfo.innerHTML = '';
@@ -151,6 +147,15 @@ export function renderUploadPage(mount) {
         const done = (j.processed_count || 0) + (j.failed_count || 0);
         const pct = total ? Math.round((done / total) * 100) : 0;
         const badge = BADGE_CLASS[j.status] || 'queued';
+        // total_candidates is 0 until the worker has filtered + capped the file.
+        const progressText = total
+          ? `${done.toLocaleString()} / ${total.toLocaleString()} (${pct}%)`
+          : j.status === 'completed'
+            ? 'nothing new to enrich'
+            : 'selecting transcripts…';
+        const skippedNote = j.skipped_existing
+          ? ` · ${j.skipped_existing.toLocaleString()} already enriched`
+          : '';
         const failedNote =
           j.failed_count > 0 ? ` · <span style="color:var(--err)">${j.failed_count} failed</span>` : '';
         const errNote =
@@ -163,7 +168,7 @@ export function renderUploadPage(mount) {
             <td>${j.filename || '—'}</td>
             <td>
               <div class="progress"><div class="progress__bar" style="width:${pct}%"></div></div>
-              <span class="hint">${done.toLocaleString()} / ${total.toLocaleString()} (${pct}%)${failedNote}</span>
+              <span class="hint">${progressText}${skippedNote}${failedNote}</span>
               ${errNote}
             </td>
             <td><span class="badge badge--${badge}">${j.status}</span></td>

@@ -1,9 +1,7 @@
-import asyncio
-
 import httpx
 
 from app.config import get_settings
-from app.llm.providers.base import LLMError, RateLimiter, retry_delay
+from app.llm.providers.base import LLMError, RateLimiter, post_with_retries
 
 _http: httpx.AsyncClient | None = None
 _rate_limiter: RateLimiter | None = None
@@ -15,7 +13,7 @@ def init() -> None:
     _http = httpx.AsyncClient(
         base_url=settings.google_base_url,
         headers={"x-goog-api-key": settings.google_api_key},
-        timeout=httpx.Timeout(120.0),
+        timeout=httpx.Timeout(settings.llm_request_timeout_seconds),
     )
     _rate_limiter = RateLimiter(settings.llm_requests_per_minute)
 
@@ -62,25 +60,13 @@ async def chat_completion(messages: list[dict[str, str]]) -> str:
     payload = {"contents": _to_contents(messages)}
     path = f"/models/{settings.google_model}:generateContent"
 
-    attempt = 0
-    while True:
-        attempt += 1
-        await _rate_limiter.acquire()
-        response = await _http.post(path, json=payload)
+    response = await post_with_retries(_http, path, payload, _rate_limiter, "Google API")
 
-        if response.status_code == 429 or response.status_code >= 500:
-            if attempt >= settings.llm_max_retries:
-                raise LLMError(
-                    f"Google API request failed after {attempt} attempts: "
-                    f"{response.status_code} {response.text}"
-                )
-            await asyncio.sleep(retry_delay(response, attempt))
-            continue
-
-        response.raise_for_status()
-        body = response.json()
-        try:
-            parts = body["candidates"][0]["content"]["parts"]
-        except (KeyError, IndexError) as exc:
-            raise LLMError(f"Google API returned no candidate content: {body}") from exc
-        return "".join(part.get("text", "") for part in parts)
+    body = response.json()
+    try:
+        parts = body["candidates"][0]["content"]["parts"]
+    except (KeyError, IndexError) as exc:
+        raise LLMError(f"Google API returned no candidate content: {body}") from exc
+    # Gemma 4 emits reasoning as parts flagged `"thought": true` — keep only
+    # the answer text.
+    return "".join(p.get("text", "") for p in parts if not p.get("thought"))

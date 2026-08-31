@@ -1,80 +1,72 @@
-from beanie import PydanticObjectId
-from pydantic import BaseModel
+"""Persistence for ingested rows.
 
-from app.ingestion.csv_loader import parse_csv
-from app.ingestion.mappers import row_to_client_fields, row_to_meeting
+Client dedup (match on name + email + phone_number) lives here and is mirrored by
+the compound unique index on `Client`. Both helpers are bulk: one query + one
+`insert_many`, never a round trip per row — a 10k-row file against a remote
+cluster made the old per-row `find_one`/`insert` loop unusable.
+
+Called from the enrichment job *after* the LLM step, so we only ever write
+Client/MeetingTranscript rows for transcripts that were actually classified.
+"""
+
+from beanie import PydanticObjectId
+from beanie.operators import In
+from pymongo.asynchronous.client_session import AsyncClientSession
+
+from app.ingestion.mappers import ClientKey, ParsedRow
 from app.models import Client, MeetingTranscript
 
 
-class IngestionSummary(BaseModel):
-    rows_processed: int
-    clients_created: int
-    meetings_created: int
+async def get_or_create_clients(
+    rows: list[ParsedRow], *, session: AsyncClientSession | None = None
+) -> dict[ClientKey, Client]:
+    """Return a `client_key -> Client` map for every row, creating the ones that
+    don't exist yet. Two DB calls total regardless of row count."""
+    wanted: dict[ClientKey, ParsedRow] = {r.client_key: r for r in rows}
+    if not wanted:
+        return {}
+
+    by_key: dict[ClientKey, Client] = {}
+    emails = list({key[1] for key in wanted})
+    for client in await Client.find(In(Client.email, emails), session=session).to_list():
+        by_key[(client.name, client.email, client.phone_number)] = client
+
+    to_create = [
+        Client(
+            id=PydanticObjectId(),
+            name=row.name,
+            email=row.email,
+            phone_number=row.phone_number,
+        )
+        for key, row in wanted.items()
+        if key not in by_key
+    ]
+    if to_create:
+        await Client.insert_many(to_create, session=session)
+        for client in to_create:
+            by_key[(client.name, client.email, client.phone_number)] = client
+
+    return by_key
 
 
-class IngestionResult(BaseModel):
-    model_config = {"arbitrary_types_allowed": True}
-
-    summary: IngestionSummary
-    meetings: list[MeetingTranscript]
-
-
-ClientKey = tuple[str, str, str]
-
-
-def _client_key(fields: dict[str, str]) -> ClientKey:
-    return (fields["name"], fields["email"], fields["phone_number"])
-
-
-async def _get_or_create_client(
-    row: dict[str, str], cache: dict[ClientKey, Client]
-) -> tuple[Client, bool]:
-    fields = row_to_client_fields(row)
-    key = _client_key(fields)
-
-    if key in cache:
-        return cache[key], False
-
-    existing = await Client.find_one(
-        Client.name == fields["name"],
-        Client.email == fields["email"],
-        Client.phone_number == fields["phone_number"],
-    )
-    if existing is not None:
-        cache[key] = existing
-        return existing, False
-
-    new_client = Client(**fields)
-    await new_client.insert()
-    cache[key] = new_client
-    return new_client, True
-
-
-async def ingest_csv(raw_bytes: bytes) -> IngestionResult:
-    cache: dict[ClientKey, Client] = {}
-    meetings: list[MeetingTranscript] = []
-    rows_processed = 0
-    clients_created = 0
-
-    for row in parse_csv(raw_bytes):
-        rows_processed += 1
-        client, created = await _get_or_create_client(row, cache)
-        if created:
-            clients_created += 1
-        meetings.append(row_to_meeting(row, client))
-
-    if meetings:
-        result = await MeetingTranscript.insert_many(meetings)
-        # insert_many() doesn't populate ids on the passed-in documents — set them
-        # from the result so callers (e.g. enrichment) can reference these meetings.
-        for meeting, inserted_id in zip(meetings, result.inserted_ids):
-            meeting.id = PydanticObjectId(inserted_id)
-
-    return IngestionResult(
-        summary=IngestionSummary(
-            rows_processed=rows_processed,
-            clients_created=clients_created,
-            meetings_created=len(meetings),
-        ),
-        meetings=meetings,
-    )
+async def insert_meetings(
+    rows: list[tuple[str, ParsedRow]],
+    clients: dict[ClientKey, Client],
+    *,
+    session: AsyncClientSession | None = None,
+) -> dict[str, MeetingTranscript]:
+    """Bulk-insert one MeetingTranscript per (enrichment_key, row) pair and return
+    them keyed by enrichment_key so the caller can attach EnhancedTranscripts."""
+    by_key: dict[str, MeetingTranscript] = {}
+    for key, row in rows:
+        by_key[key] = MeetingTranscript(
+            id=PydanticObjectId(),
+            client=clients[row.client_key],
+            meeting_date=row.meeting_date,
+            salesperson=row.salesperson,
+            closed=row.closed,
+            transcript=row.transcript,
+        )
+    if by_key:
+        await MeetingTranscript.insert_many(list(by_key.values()), session=session)
+    return by_key

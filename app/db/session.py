@@ -36,3 +36,11 @@ async def close_db() -> None:
     if _client is not None:
         _client.close()
         _client = None
+
+
+def get_client() -> AsyncIOMotorClient:
+    """The Motor client Beanie is bound to — use it to start sessions/transactions
+    (`async with await get_client().start_session() as s: ...`)."""
+    if _client is None:
+        raise RuntimeError("DB not initialized — call init_db() first")
+    return _client
