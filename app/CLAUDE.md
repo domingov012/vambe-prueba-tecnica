@@ -24,27 +24,38 @@ app/
 │   └── processors/           # transcript enrichment logic (prompt + parsing), isolated from the LLM client itself
 ├── aggregation/               # dashboard aggregation logic (precomputed insights payload)
 │   ├── rows.py                 # EnhancedTranscript -> flat TranscriptRow list (single-collection scan)
-│   └── insights.py             # 10 chart datasets, recompute_insights() upserts the cached blob
+│   └── insights.py             # 22 chart datasets, recompute_insights() upserts the cached blob
 └── api/routes/                 # thin FastAPI routers — parse request, call a service/aggregator, return response
 ```
 
 ## Dashboard insights
 
-- **One precomputed endpoint, not one per chart.** `GET /api/dashboard/insights` returns all 10 chart
-  datasets + `computed_at` from a single cached blob (`DashboardInsights`, `_id="latest"`). No live
-  aggregation in the request path; sends an `ETag` (from `computed_at`) so an unchanged payload is a 304.
+- **One precomputed endpoint, not one per chart.** `GET /api/dashboard/insights` returns all 22 chart
+  datasets + `_meta` + `computed_at` from a single cached blob (`DashboardInsights`, `_id="latest"`). No
+  live aggregation in the request path; sends an `ETag` (from `computed_at`) so an unchanged payload is
+  a 304. Contract in `aggregations.md`.
 - **Recompute triggers:** automatically at the end of every enrichment job (`llm/jobs.py`), and manually
   via `POST /api/dashboard/insights/recompute`. `GET /api/dashboard/insights/status` reports staleness.
   Recompute is `_id`-upsert (`save()`) + guarded by an `asyncio.Lock`, so concurrent triggers coalesce.
-- **`closed` / `salesperson` are denormalized onto `EnhancedTranscript`** at enrichment time — immutable
-  source fields, never LLM-inferred — so the aggregation reads a single collection with no join.
+- **`closed` / `salesperson` / `meeting_date` are denormalized onto `EnhancedTranscript`** at enrichment
+  time — immutable source fields, never LLM-inferred — so the aggregation reads a single collection with
+  no join. `meeting_date` is nullable *only* because rows predate the field; back it with
+  `python -m scripts.backfill_enhanced_meeting_date` and `_meta.rows_without_date` drops to 0.
 - **Duplicates need no runtime filtering.** Reworded near-duplicates share the tuple
   `(name, email, phone_number, meeting_date)`, which *is* `EnhancedTranscript._id` (`enrichment_key()`);
   the primary key guarantees one enhanced row per duplicate group. Multi-selects (`client_needs`,
   `current_channels`) are flattened in application code (`rows.py` docstring explains the app- vs.
   query-layer choice and when to revisit).
-- Two generic functions back most charts: `close_rate_by_dimension()` (#1×3, #5, #7, #9) and
-  `needs_matrix()` (#8, #10).
+- Three generic functions back most charts: `close_rate_by_dimension()` (single-select cuts),
+  `close_rate_by_membership()` (multi-select cuts) and `needs_matrix()` (cross-tabs).
+- **Partitioning vs. overlapping is the distinction to hold onto.** Single-select groups partition the
+  population; multi-select ones (needs, channels-in-use) overlap, so their totals sum past `N` and no
+  baseline can be recovered by summing them. Those datasets carry `lift` precomputed, and
+  `_meta.base_rate` / `_meta.min_sample` publish the one baseline and one small-sample gate the whole
+  dashboard uses — `min_sample()` scales it with the population instead of hardcoding a threshold.
+- `signal_board` re-derives from the same row list rather than reading the other datasets, so it costs
+  no extra scan and can't drift from the charts it summarises. `salesperson` is deliberately excluded
+  from it — see the comment on `_SINGLE_SELECT_FIELDS`.
 
 ## Enrichment pipeline
 

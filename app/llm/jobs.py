@@ -147,6 +147,7 @@ async def _persist_classified(
                         meeting=meetings[key],
                         closed=meetings[key].closed,
                         salesperson=meetings[key].salesperson,
+                        meeting_date=meetings[key].meeting_date,
                         **classification.model_dump(),
                     )
                     for key, classification in classified

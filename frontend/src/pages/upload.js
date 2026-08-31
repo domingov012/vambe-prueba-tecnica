@@ -3,6 +3,7 @@
 // GET /api/jobs every 2s while any job is still queued/running.
 
 import { uploadCsv, listJobs } from '../api.js';
+import { LOCALE } from '../format.js';
 
 const POLL_INTERVAL_MS = 2000;
 const ACTIVE_STATUSES = ['queued', 'running'];
@@ -19,29 +20,29 @@ export function renderUploadPage(mount) {
   const page = document.createElement('div');
   page.className = 'page';
   page.innerHTML = `
-    <h1 class="page__title">Data Upload</h1>
-    <p class="page__subtitle">Upload a CSV of client meeting transcripts and track LLM-enhancement jobs.</p>
+    <h1 class="page__title">Carga de datos</h1>
+    <p class="page__subtitle">Sube un CSV de transcripciones de reuniones y sigue los jobs de enriquecimiento.</p>
 
     <div class="card">
-      <h2 class="card__title">Upload CSV</h2>
+      <h2 class="card__title">Subir CSV</h2>
       <div class="dropzone" id="dropzone">
-        <p><strong>Drop a .csv file here</strong> or click to browse</p>
-        <p class="hint">Expected columns: Nombre, Correo Electronico, Numero de Telefono, Fecha de la Reunion, Vendedor asignado, closed, Transcripcion</p>
+        <p><strong>Arrastra un archivo .csv</strong> o haz clic para buscarlo</p>
+        <p class="hint">Columnas esperadas: Nombre, Correo Electronico, Numero de Telefono, Fecha de la Reunion, Vendedor asignado, closed, Transcripcion</p>
         <input type="file" id="file-input" accept=".csv,text/csv" hidden />
       </div>
       <div id="file-info"></div>
       <div id="upload-result"></div>
       <div style="margin-top:16px; display:flex; gap:10px;">
-        <button class="btn" id="start-btn" disabled>Start enhancement</button>
-        <button class="btn btn--ghost" id="clear-btn" disabled>Clear</button>
+        <button class="btn" id="start-btn" disabled>Iniciar enriquecimiento</button>
+        <button class="btn btn--ghost" id="clear-btn" disabled>Limpiar</button>
       </div>
     </div>
 
     <div class="card">
-      <h2 class="card__title">Enhancement jobs</h2>
+      <h2 class="card__title">Jobs de enriquecimiento</h2>
       <table class="table">
         <thead>
-          <tr><th>Job</th><th>File</th><th>Progress</th><th>Status</th><th>Started</th></tr>
+          <tr><th>Job</th><th>Archivo</th><th>Progreso</th><th>Estado</th><th>Inicio</th></tr>
         </thead>
         <tbody id="jobs-body"></tbody>
       </table>
@@ -69,7 +70,7 @@ export function renderUploadPage(mount) {
   function setFile(file) {
     uploadResult.innerHTML = '';
     if (file && !file.name.toLowerCase().endsWith('.csv')) {
-      fileInfo.innerHTML = '<div class="file-pill" style="color:var(--err)">Not a .csv file</div>';
+      fileInfo.innerHTML = '<div class="file-pill" style="color:var(--flare)">El archivo no es .csv</div>';
       selectedFile = null;
     } else {
       selectedFile = file || null;
@@ -83,7 +84,7 @@ export function renderUploadPage(mount) {
   function syncButtons() {
     startBtn.disabled = uploading || !selectedFile;
     clearBtn.disabled = uploading || !selectedFile;
-    startBtn.textContent = uploading ? 'Uploading…' : 'Start enhancement';
+    startBtn.textContent = uploading ? 'Subiendo…' : 'Iniciar enriquecimiento';
   }
 
   dropzone.addEventListener('click', () => fileInput.click());
@@ -118,15 +119,15 @@ export function renderUploadPage(mount) {
 
     try {
       const { summary } = await uploadCsv(selectedFile);
-      uploadResult.innerHTML = `<p class="hint" style="color:var(--ok)">
-        Received ${summary.rows_received.toLocaleString()} rows — enrichment job started.
-        Track progress below.</p>`;
+      uploadResult.innerHTML = `<p class="hint" style="color:var(--tide)">
+        Se recibieron ${summary.rows_received.toLocaleString(LOCALE)} filas — job de
+        enriquecimiento iniciado. Sigue el progreso abajo.</p>`;
       fileInput.value = '';
       selectedFile = null;
       fileInfo.innerHTML = '';
       startPolling();
     } catch (err) {
-      uploadResult.innerHTML = `<p class="hint" style="color:var(--err)">Upload failed: ${err.message}</p>`;
+      uploadResult.innerHTML = `<p class="hint" style="color:var(--flare)">Falló la carga: ${err.message}</p>`;
     } finally {
       uploading = false;
       syncButtons();
@@ -138,7 +139,7 @@ export function renderUploadPage(mount) {
   function renderJobs(jobs) {
     if (!jobs.length) {
       jobsBody.innerHTML = '';
-      jobsNote.textContent = 'No enhancement jobs yet.';
+      jobsNote.textContent = 'Aún no hay jobs de enriquecimiento.';
       return;
     }
     jobsBody.innerHTML = jobs
@@ -149,18 +150,20 @@ export function renderUploadPage(mount) {
         const badge = BADGE_CLASS[j.status] || 'queued';
         // total_candidates is 0 until the worker has filtered + capped the file.
         const progressText = total
-          ? `${done.toLocaleString()} / ${total.toLocaleString()} (${pct}%)`
+          ? `${done.toLocaleString(LOCALE)} / ${total.toLocaleString(LOCALE)} (${pct}%)`
           : j.status === 'completed'
-            ? 'nothing new to enrich'
-            : 'selecting transcripts…';
+            ? 'sin transcripciones nuevas'
+            : 'seleccionando transcripciones…';
         const skippedNote = j.skipped_existing
-          ? ` · ${j.skipped_existing.toLocaleString()} already enriched`
+          ? ` · ${j.skipped_existing.toLocaleString(LOCALE)} ya enriquecidas`
           : '';
         const failedNote =
-          j.failed_count > 0 ? ` · <span style="color:var(--err)">${j.failed_count} failed</span>` : '';
+          j.failed_count > 0
+            ? ` · <span style="color:var(--flare)">${j.failed_count} con error</span>`
+            : '';
         const errNote =
           j.status === 'failed' && j.error
-            ? `<div class="hint" style="color:var(--err)">${j.error}</div>`
+            ? `<div class="hint" style="color:var(--flare)">${j.error}</div>`
             : '';
         return `
           <tr>
@@ -178,7 +181,7 @@ export function renderUploadPage(mount) {
       })
       .join('');
     jobsNote.textContent = jobs.some((j) => ACTIVE_STATUSES.includes(j.status))
-      ? 'Auto-refreshing…'
+      ? 'Actualizando…'
       : '';
   }
 
@@ -195,7 +198,7 @@ export function renderUploadPage(mount) {
       }
     } catch (err) {
       if (disposed) return;
-      jobsNote.textContent = `Could not load jobs: ${err.message}`;
+      jobsNote.textContent = `No se pudieron cargar los jobs: ${err.message}`;
       pollTimer = setTimeout(poll, POLL_INTERVAL_MS);
     }
   }
@@ -221,5 +224,5 @@ function shortId(id) {
 function formatDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString(LOCALE);
 }

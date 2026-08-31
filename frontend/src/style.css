@@ -1,16 +1,34 @@
+/* Vambe — global theme.
+ *
+ * One palette, three typefaces, no component framework. The dashboard's visual
+ * grammar is a single mark (see .bar below): length = close rate, thickness =
+ * sample size, dashed rule = the overall average. Everything else stays quiet
+ * so that mark carries the page.
+ */
+
 :root {
-  --bg: #0f1115;
-  --surface: #181b22;
-  --surface-2: #1f232c;
-  --border: #2a2f3a;
-  --text: #e6e8ec;
-  --text-dim: #9aa2ad;
-  --accent: #6d8bff;
-  --accent-dim: #38406a;
-  --ok: #3fb668;
-  --warn: #e0a83d;
-  --err: #e05d5d;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --pine: #0b1512;         /* page ground */
+  --pine-2: #101c18;       /* raised surface, bar tracks */
+  --pine-3: #16241f;       /* hover */
+  --rule: #1e2e28;         /* hairlines */
+  --chalk: #e9efea;        /* primary text */
+  --moss: #8ca298;         /* secondary text */
+  --moss-dim: #5d716a;     /* tertiary text, axis marks */
+  --signal: #e9b44c;       /* closed / primary series */
+  --signal-ink: #241a06;   /* text on signal */
+  --tide: #4fbfa8;         /* secondary series, matrix heat */
+  --flare: #e0674f;        /* errors */
+
+  --tide-rgb: 79, 191, 168;
+
+  --display: "Archivo", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --shell: 1180px;
+
+  font-family: var(--body);
+  color-scheme: dark;
 }
 
 * {
@@ -19,8 +37,9 @@
 
 body {
   margin: 0;
-  background: var(--bg);
-  color: var(--text);
+  background: var(--pine);
+  color: var(--chalk);
+  -webkit-font-smoothing: antialiased;
 }
 
 #app {
@@ -29,127 +48,168 @@ body {
   flex-direction: column;
 }
 
+:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+
+/* Views are toggled with el.hidden; flex/grid display would otherwise win. */
+[hidden] {
+  display: none !important;
+}
+
 /* ---- Top nav ---- */
 .nav {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 14px 24px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
+  align-items: baseline;
+  gap: 26px;
+  padding: 18px 32px;
+  border-bottom: 1px solid var(--rule);
 }
 
 .nav__brand {
+  font-family: var(--display);
+  font-stretch: 125%;
   font-weight: 700;
-  margin-right: 24px;
-  letter-spacing: 0.02em;
+  font-size: 15px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-right: 6px;
 }
 
 .nav__link {
-  padding: 8px 14px;
-  border-radius: 8px;
-  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--moss);
   text-decoration: none;
-  font-size: 14px;
+  padding-bottom: 3px;
+  border-bottom: 1px solid transparent;
 }
 
 .nav__link:hover {
-  background: var(--surface-2);
-  color: var(--text);
+  color: var(--chalk);
 }
 
 .nav__link--active {
-  background: var(--accent-dim);
-  color: var(--text);
+  color: var(--signal);
+  border-bottom-color: var(--signal);
 }
 
-/* ---- Layout ---- */
+/* ---- Page shell ---- */
 .page {
   flex: 1;
-  padding: 32px 24px;
-  max-width: 1100px;
   width: 100%;
+  max-width: var(--shell);
   margin: 0 auto;
+  padding: 40px 32px 96px;
 }
 
 .page__title {
-  margin: 0 0 4px;
-  font-size: 22px;
+  font-family: var(--display);
+  font-stretch: 118%;
+  font-weight: 700;
+  font-size: 26px;
+  letter-spacing: -0.01em;
+  margin: 0 0 6px;
 }
 
 .page__subtitle {
-  margin: 0 0 28px;
-  color: var(--text-dim);
+  margin: 0 0 30px;
+  color: var(--moss);
   font-size: 14px;
 }
 
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--moss-dim);
+  margin: 0;
+}
+
+/* ---- Upload page primitives ---- */
 .card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 20px;
+  background: var(--pine-2);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 22px;
   margin-bottom: 20px;
 }
 
 .card__title {
-  margin: 0 0 14px;
-  font-size: 15px;
+  font-family: var(--display);
+  font-stretch: 112%;
   font-weight: 600;
+  margin: 0 0 16px;
+  font-size: 15px;
 }
 
-/* ---- Upload dropzone ---- */
 .dropzone {
-  border: 1.5px dashed var(--border);
-  border-radius: 12px;
-  padding: 40px;
+  border: 1px dashed var(--rule);
+  border-radius: 4px;
+  padding: 44px;
   text-align: center;
-  color: var(--text-dim);
+  color: var(--moss);
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
 }
 
 .dropzone--over {
-  border-color: var(--accent);
-  background: var(--surface-2);
+  border-color: var(--signal);
+  background: var(--pine-3);
 }
 
 .dropzone strong {
-  color: var(--text);
+  color: var(--chalk);
 }
 
 .file-pill {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 999px;
+  background: var(--pine-3);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
   padding: 8px 14px;
   margin-top: 16px;
   font-size: 13px;
+  font-family: var(--mono);
 }
 
 /* ---- Buttons ---- */
 .btn {
-  background: var(--accent);
-  color: #0b0d12;
+  background: var(--signal);
+  color: var(--signal-ink);
   border: none;
-  border-radius: 8px;
+  border-radius: 3px;
   padding: 9px 18px;
-  font-size: 14px;
+  font-family: var(--body);
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
 }
 
 .btn:disabled {
-  opacity: 0.45;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
 .btn--ghost {
   background: transparent;
-  border: 1px solid var(--border);
-  color: var(--text);
+  border: 1px solid var(--rule);
+  color: var(--chalk);
+}
+
+.btn--ghost:hover:not(:disabled) {
+  border-color: var(--moss-dim);
+}
+
+.btn--sm {
+  padding: 5px 11px;
+  font-size: 12px;
 }
 
 /* ---- Jobs table ---- */
@@ -163,164 +223,641 @@ body {
 .table td {
   text-align: left;
   padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--rule);
 }
 
 .table th {
-  color: var(--text-dim);
-  font-weight: 500;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--moss-dim);
+  font-weight: 400;
 }
 
 .badge {
   display: inline-block;
   padding: 3px 9px;
   border-radius: 999px;
-  font-size: 12px;
-  text-transform: capitalize;
+  font-size: 11px;
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
 
-.badge--running { background: var(--accent-dim); color: var(--text); }
-.badge--done { background: rgba(63, 182, 104, 0.18); color: var(--ok); }
-.badge--queued { background: var(--surface-2); color: var(--text-dim); }
-.badge--failed { background: rgba(224, 93, 93, 0.18); color: var(--err); }
+.badge--running { background: rgba(233, 180, 76, 0.16); color: var(--signal); }
+.badge--done { background: rgba(var(--tide-rgb), 0.16); color: var(--tide); }
+.badge--queued { background: var(--pine-3); color: var(--moss); }
+.badge--failed { background: rgba(224, 103, 79, 0.16); color: var(--flare); }
 
 .progress {
-  height: 6px;
+  height: 4px;
   width: 140px;
-  background: var(--surface-2);
+  background: var(--pine-3);
   border-radius: 999px;
   overflow: hidden;
 }
 
 .progress__bar {
   height: 100%;
-  background: var(--accent);
+  background: var(--signal);
 }
 
-/* ---- Dashboard grid ---- */
-.chart-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 20px;
+.hint {
+  font-size: 12px;
+  color: var(--moss);
+  margin-top: 8px;
 }
 
-@media (max-width: 720px) {
-  .chart-grid {
-    grid-template-columns: 1fr;
-  }
+/* =========================================================================
+   Dashboard
+   ========================================================================= */
+
+.dash {
+  flex: 1;
+  width: 100%;
+  padding-bottom: 100px;
 }
 
-.chart-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 18px;
+.dash__inner {
+  max-width: var(--shell);
+  margin: 0 auto;
+  padding: 0 32px;
 }
 
-.chart-card--wide {
-  grid-column: 1 / -1;
+/* ---- Hero: the whole dataset as one bar ---- */
+.hero {
+  padding: 44px 0 40px;
 }
 
-.chart-card h3 {
-  margin: 0 0 14px;
-  font-size: 14px;
-  font-weight: 600;
+.hero__eyebrow {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--moss-dim);
+  margin: 0 0 20px;
 }
 
-.chart-card__canvas-wrap {
+.hero__title {
+  font-family: var(--display);
+  font-stretch: 125%;
+  font-weight: 700;
+  font-size: clamp(28px, 3.8vw, 44px);
+  line-height: 1.06;
+  letter-spacing: -0.02em;
+  margin: 0 0 30px;
+  max-width: 19ch;
+}
+
+.hero__strip {
   position: relative;
-  height: 240px;
+  height: 56px;
+  background: var(--pine-2);
+  border: 1px solid var(--rule);
+  overflow: hidden;
 }
 
-.chart-card__canvas-wrap--tall {
-  height: 340px;
+.hero__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  background: var(--signal);
+  transition: width 900ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
-/* ---- Dashboard status line ---- */
-.dashboard-status {
+.hero__legend {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 10px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  color: var(--moss);
+}
+
+.hero__legend b {
+  color: var(--chalk);
+  font-weight: 500;
+}
+
+.hero__caption {
+  margin: 26px 0 0;
+  max-width: 52ch;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--moss);
+}
+
+/* ---- Status line ---- */
+.dash-status {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 10px 14px;
-  margin-bottom: 20px;
-  font-size: 13px;
-  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  color: var(--moss-dim);
+  padding: 14px 0;
+  border-top: 1px solid var(--rule);
 }
 
-.dashboard-status__actions {
+.dash-status--warn { color: var(--signal); }
+.dash-status--error { color: var(--flare); }
+
+.dash-status--sample,
+.dash-status--info {
+  color: var(--moss);
+}
+
+.dash-status__actions {
   display: inline-flex;
-  gap: 10px;
+  gap: 8px;
 }
 
-.dashboard-status--warn {
-  color: var(--warn);
+/* ---- Section: title rail + chart body ---- */
+.sect {
+  display: grid;
+  grid-template-columns: 252px minmax(0, 1fr);
+  gap: 40px;
+  padding: 46px 0;
+  border-top: 1px solid var(--rule);
 }
 
-.dashboard-status--error {
-  color: var(--err);
+.sect__rail {
+  position: sticky;
+  top: 28px;
+  align-self: start;
 }
 
-.dashboard-status--sample,
-.dashboard-status--info {
-  padding: 12px 14px;
-  border: 1px dashed var(--border);
-  border-radius: 10px;
-  background: var(--surface);
+.sect__title {
+  font-family: var(--display);
+  font-stretch: 118%;
+  font-weight: 700;
+  font-size: 21px;
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+  margin: 12px 0 0;
 }
 
-.btn--sm {
-  padding: 5px 12px;
-  font-size: 12px;
+.sect__note {
+  margin: 12px 0 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--moss);
 }
 
-/* ---- Skeleton loading ---- */
-.skeleton {
+.sect__controls {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.sect__body {
+  min-width: 0;
+}
+
+@media (max-width: 860px) {
+  .sect {
+    grid-template-columns: 1fr;
+    gap: 22px;
+    padding: 34px 0;
+  }
+
+  .sect__rail {
+    position: static;
+  }
+}
+
+@media (max-width: 620px) {
+  .nav,
+  .dash__inner,
+  .page {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+
+  .hero {
+    padding: 34px 0 30px;
+  }
+
+  .bar__row {
+    gap: 10px;
+  }
+}
+
+/* ---- Segmented control / tabs ---- */
+.seg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 2px;
+  max-width: 100%;
+}
+
+.seg__opt {
+  appearance: none;
+  background: transparent;
+  border: none;
+  border-radius: 2px;
+  color: var(--moss);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 6px 10px;
+  white-space: nowrap;
+  transition: color 0.15s, background 0.15s;
+}
+
+.seg__opt:hover {
+  color: var(--chalk);
+}
+
+.seg__opt--on {
+  background: var(--chalk);
+  color: var(--pine);
+}
+
+.seg--quiet .seg__opt--on {
+  background: var(--pine-3);
+  color: var(--signal);
+}
+
+/* ---- Dropdown ---- */
+/* Only the closed state is ours; the popup is the platform's. Sized to match a
+   .seg sitting above it in the same rail. */
+.drop {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.drop__label {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--moss-dim);
+}
+
+.drop__select {
+  appearance: none;
+  min-width: 0;
+  flex: 1;
+  background: var(--pine-2);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  color: var(--chalk);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  padding: 7px 26px 7px 10px;
+  /* Chevron drawn in the box rather than loaded — one gradient pair, no asset. */
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--moss) 50%),
+    linear-gradient(135deg, var(--moss) 50%, transparent 50%);
+  background-position: right 13px center, right 8px center;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.drop__select:hover {
+  border-color: var(--moss-dim);
+}
+
+.drop__select option {
+  background: var(--pine-2);
+  color: var(--chalk);
+}
+
+/* ---- The mark: weighted proportion / count bars ---- */
+.bars {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  --baseline: 0%;
+}
+
+.bar {
+  opacity: 1;
+  transition: opacity 180ms ease;
+}
+
+/* Rows arriving from a dimension switch settle in rather than fading up from
+   nothing — the section is being re-sliced, not reloaded. */
+.bar--enter {
+  opacity: 0.35;
+}
+
+/* Below the dataset's minimum sample. Thickness already encodes sample size,
+   but a list sorted by rate floats the thinnest bars to the top — exactly the
+   rows nobody should act on — so they lose contrast too. Still readable, still
+   hoverable: the tooltip says why it's dimmed. */
+.bar--faint {
+  opacity: 0.42;
+}
+
+.bar--faint:hover {
+  opacity: 0.75;
+}
+
+.bar__row {
+  display: grid;
+  /* The label column tracks its configured width but never eats the bar: on a
+     narrow screen 38vw wins and labels ellipsis instead. */
+  grid-template-columns: minmax(0, min(var(--label-col, 170px), 38vw)) minmax(0, 1fr) 84px;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 2px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.bars--interactive .bar__row {
+  cursor: pointer;
+}
+
+.bars--interactive .bar__row:hover .bar__label,
+.bar--on .bar__label {
+  color: var(--chalk);
+}
+
+.bars--interactive .bar__row:hover .bar__rail {
+  background: var(--pine-3);
+}
+
+.bar__label {
+  font-size: 12.5px;
+  color: var(--moss);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color 0.15s;
+}
+
+.bar__track {
+  position: relative;
+  height: 30px;
+}
+
+.bar__rail,
+.bar__fill {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  height: var(--h, 14px);
+  transform: translateY(-50%);
+  border-radius: 1px;
+  transition: width 420ms cubic-bezier(0.22, 0.61, 0.36, 1),
+              height 420ms cubic-bezier(0.22, 0.61, 0.36, 1),
+              background 0.15s;
+}
+
+.bar__rail {
+  width: 100%;
+  background: var(--pine-2);
+}
+
+.bar__fill {
+  width: var(--w, 0%);
+  background: var(--signal);
+}
+
+.bars[data-tone="tide"] .bar__fill {
+  background: var(--tide);
+}
+
+/* The house line — dashed rule at the dataset's overall close rate. Drawn per
+   row so it reads as one continuous line down the chart. */
+.bars--baselined .bar__track::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--baseline);
+  border-left: 1px dashed var(--moss-dim);
+  opacity: 0.55;
+}
+
+.bar__read {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 7px;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.bar__value {
+  font-size: 12.5px;
+  color: var(--chalk);
+}
+
+.bar__sub {
+  font-size: 10.5px;
+  color: var(--moss-dim);
+}
+
+.bars__axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--rule);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  color: var(--moss-dim);
+}
+
+/* ---- Drill-down panel ---- */
+.bar-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 300ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.bar-panel--open {
+  grid-template-rows: 1fr;
+}
+
+.bar-panel__inner {
+  overflow: hidden;
+}
+
+.bar-panel__body {
+  margin: 4px 0 14px;
+  padding: 16px 18px;
+  background: var(--pine-2);
+  border-left: 2px solid var(--signal);
+}
+
+.bar-panel__head {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--moss-dim);
+  margin: 0 0 12px;
+}
+
+.bar-panel .bar__row {
+  grid-template-columns: minmax(0, min(170px, 34vw)) minmax(0, 1fr) 84px;
+}
+
+.bar-panel .bar__track {
+  height: 22px;
+}
+
+.bar-panel .bar__rail {
+  background: var(--pine);
+}
+
+/* ---- Time series: a line, in SVG ---- */
+/* The one place the mark rotates onto a time axis. A line has no thickness to
+   spend on sample size, so that moves to the point: dot radius = meetings that
+   month, hollow dots fall under the dataset's minimum. */
+.line__plot {
+  position: relative;
+  border-bottom: 1px solid var(--rule);
+}
+
+.line__svg {
   display: block;
-  border-radius: 8px;
-  background: linear-gradient(90deg, var(--surface-2) 25%, var(--border) 37%, var(--surface-2) 63%);
-  background-size: 400% 100%;
-  animation: skeleton-pulse 1.4s ease infinite;
+  overflow: visible;
 }
 
-.skeleton--text {
-  height: 13px;
-  width: 180px;
+.line__baseline {
+  stroke: var(--moss-dim);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+  opacity: 0.55;
 }
 
-.skeleton--block {
-  height: 240px;
+.line__path {
+  fill: none;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
-.skeleton--block-wide {
-  height: 300px;
+.line__dot {
+  stroke-width: 1.5;
 }
 
-@keyframes skeleton-pulse {
-  0% { background-position: 100% 50%; }
-  100% { background-position: 0 50%; }
+/* The focus series: the team on its own, or the selected rep. */
+.line__series--focus .line__path { stroke: var(--signal); }
+.line__series--focus .line__dot { fill: var(--signal); stroke: var(--signal); }
+
+/* Context behind a rep — present enough to compare against, quiet enough not
+   to compete with the series being read. */
+.line__series--muted .line__path { stroke: var(--moss-dim); opacity: 0.55; }
+.line__series--muted .line__dot { fill: var(--moss-dim); stroke: var(--moss-dim); opacity: 0.55; }
+
+/* Below the minimum sample: hollow, so a thin month reads as a claim the data
+   can't back rather than as a data point like any other. */
+.line__dot--thin { fill: var(--pine); }
+
+.line__cap,
+.line__mark {
+  position: absolute;
+  right: 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--moss-dim);
+  pointer-events: none;
 }
 
-/* ---- Heatmap (cross-tab charts) ---- */
+.line__cap { top: -4px; }
+
+.line__mark {
+  transform: translateY(-120%);
+  background: var(--pine);
+  padding-left: 6px;
+}
+
+.line__axis {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.line__tick {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--moss-dim);
+  text-align: center;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.line__legend {
+  display: flex;
+  gap: 18px;
+  margin-top: 12px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  color: var(--moss);
+}
+
+.line__key {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.line__key i {
+  width: 14px;
+  height: 2px;
+  border-radius: 1px;
+}
+
+.line__key--focus i { background: var(--signal); }
+.line__key--muted i { background: var(--moss-dim); opacity: 0.55; }
+
+/* ---- Heatmap ---- */
 .heatmap-scroll {
   overflow-x: auto;
+  padding-bottom: 6px;
 }
 
 .heatmap {
   border-collapse: separate;
   border-spacing: 2px;
-  font-size: 11px;
+  font-family: var(--mono);
+  font-size: 10.5px;
 }
 
 .heatmap th {
-  color: var(--text-dim);
-  font-weight: 500;
+  color: var(--moss-dim);
+  font-weight: 400;
+  letter-spacing: 0.04em;
   padding: 4px 6px;
   white-space: nowrap;
 }
 
 .heatmap thead th span {
   display: inline-block;
-  max-width: 90px;
+  max-width: 84px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -329,29 +866,72 @@ body {
   text-align: right;
   position: sticky;
   left: 0;
-  background: var(--surface);
+  background: var(--pine);
+  color: var(--moss);
 }
 
 .heatmap td {
   text-align: center;
-  min-width: 34px;
-  padding: 6px 4px;
-  border-radius: 4px;
-  color: var(--text);
+  min-width: 32px;
+  padding: 7px 4px;
+  border-radius: 1px;
+  color: var(--chalk);
   font-variant-numeric: tabular-nums;
+  transition: background 300ms ease;
 }
 
-.hint {
-  font-size: 12px;
-  color: var(--text-dim);
-  margin-top: 8px;
+.heat-legend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  color: var(--moss-dim);
 }
 
-.empty-note {
-  border: 1px dashed var(--border);
-  border-radius: 10px;
-  padding: 14px 16px;
-  color: var(--text-dim);
+.heat-legend__ramp {
+  width: 96px;
+  height: 6px;
+  background: linear-gradient(90deg, rgba(var(--tide-rgb), 0.1), rgba(var(--tide-rgb), 1));
+}
+
+/* ---- Notes / empty / skeleton ---- */
+.note {
+  border: 1px dashed var(--rule);
+  border-radius: 3px;
+  padding: 16px 18px;
+  color: var(--moss);
   font-size: 13px;
-  background: var(--surface);
+}
+
+.skeleton {
+  display: block;
+  background: linear-gradient(90deg, var(--pine-2) 25%, var(--rule) 37%, var(--pine-2) 63%);
+  background-size: 400% 100%;
+  animation: skeleton-pulse 1.4s ease infinite;
+}
+
+.skeleton--rows {
+  height: 210px;
+}
+
+.skeleton--strip {
+  height: 56px;
+}
+
+@keyframes skeleton-pulse {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

@@ -1,9 +1,9 @@
 """Build the flat rows every dashboard aggregation runs against.
 
-One `TranscriptRow` per `EnhancedTranscript`. `closed` and `salesperson` are
-denormalized onto `EnhancedTranscript` at enrichment time (immutable source
-fields), so this is a **single-collection read with no join** — we don't touch
-`meeting_transcripts` or `clients` here at all.
+One `TranscriptRow` per `EnhancedTranscript`. `closed`, `salesperson` and
+`meeting_date` are denormalized onto `EnhancedTranscript` at enrichment time
+(immutable source fields), so this is a **single-collection read with no join** —
+we don't touch `meeting_transcripts` or `clients` here at all.
 
 ## Duplicate handling
 
@@ -29,6 +29,7 @@ add indexes on the grouped fields.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 
 from pydantic import BaseModel
 
@@ -40,18 +41,21 @@ from app.models.enhanced_transcript import (
     DiscoveryChannel,
     EnhancedTranscript,
     IndustryBucket,
+    InquiryVolume,
     PainPointUrgency,
     RegulatoryFlag,
 )
 
 
 class _EnhancedProjection(BaseModel):
-    """Only the fields the 10 charts depend on — skips sub_sector, inquiry_volume,
-    the meeting link and the id, keeping the scan payload minimal."""
+    """Only the fields the charts depend on — skips sub_sector (free text, not a
+    chartable domain), the meeting link and the id, keeping the scan payload
+    minimal."""
 
     sector: IndustryBucket
     business_model: BusinessModel
     business_size: BusinessSize
+    inquiry_volume: InquiryVolume
     discovery_channel: DiscoveryChannel
     regulatory_flag: RegulatoryFlag
     pain_point_urgency: PainPointUrgency
@@ -59,6 +63,10 @@ class _EnhancedProjection(BaseModel):
     client_needs: list[ClientNeed]
     closed: bool
     salesperson: str
+    # Stored as a midnight datetime (beanie encodes `date` that way) and coerced
+    # back on read. `None` for rows enriched before the field existed — see the
+    # model and `scripts/backfill_enhanced_meeting_date.py`.
+    meeting_date: date | None = None
 
 
 @dataclass(frozen=True)
@@ -66,6 +74,7 @@ class TranscriptRow:
     sector: str
     business_model: str
     business_size: str
+    inquiry_volume: str
     discovery_channel: str
     regulatory_flag: str
     pain_point_urgency: str
@@ -73,6 +82,7 @@ class TranscriptRow:
     client_needs: tuple[str, ...]
     closed: bool
     salesperson: str
+    meeting_date: date | None
 
 
 async def load_transcript_rows() -> list[TranscriptRow]:
@@ -82,6 +92,7 @@ async def load_transcript_rows() -> list[TranscriptRow]:
             sector=p.sector.value,
             business_model=p.business_model.value,
             business_size=p.business_size.value,
+            inquiry_volume=p.inquiry_volume.value,
             discovery_channel=p.discovery_channel.value,
             regulatory_flag=p.regulatory_flag.value,
             pain_point_urgency=p.pain_point_urgency.value,
@@ -89,6 +100,7 @@ async def load_transcript_rows() -> list[TranscriptRow]:
             client_needs=tuple(n.value for n in p.client_needs),
             closed=p.closed,
             salesperson=p.salesperson.strip(),
+            meeting_date=p.meeting_date,
         )
         for p in projected
     ]

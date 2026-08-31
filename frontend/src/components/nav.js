@@ -1,7 +1,7 @@
 // Persistent top navigation, rendered once outside the router outlet.
 
 const LINKS = [
-  { path: '/', label: 'Data Upload' },
+  { path: '/', label: 'Carga de datos' },
   { path: '/dashboard', label: 'Dashboard' },
 ];
 

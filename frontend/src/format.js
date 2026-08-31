@@ -3,37 +3,67 @@
 
 // enum_value -> "Enum Value". Backend aggregation groups are raw enum strings
 // (e.g. "retail_ecommerce", "google_search_ads"); charts want them readable.
+// Capitalises at word starts only, never mid-word: sales reps arrive as real
+// names, and \b sits between "ñ" and "o", which turned "Muñoz" into "MuñOz".
 export function humanize(value) {
   if (value == null || value === '') return '—';
   return String(value)
     .replace(/_/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+    .replace(/(^|\s)(\p{L})/gu, (_, space, char) => space + char.toUpperCase());
 }
 
 export function percent(fraction, digits = 0) {
   return `${(fraction * 100).toFixed(digits)}%`;
 }
 
-// ISO timestamp -> "just now" / "3 hours ago" / "2 days ago".
+export function count(n) {
+  return Number(n || 0).toLocaleString(LOCALE);
+}
+
+// A difference between two rates, in percentage points — never "%", which would
+// read as a relative change. Always signed: the sign is the whole message.
+export function points(fraction, digits = 0) {
+  const value = (Number(fraction) || 0) * 100;
+  // Sign comes off the ROUNDED figure: −0.4 pts displayed at zero decimals is
+  // "±0 pts", never "−0 pts", which reads as a defect rather than as a rounding.
+  const rounded = Number(value.toFixed(digits));
+  const sign = rounded > 0 ? '+' : rounded < 0 ? '−' : '±';
+  return `${sign}${Math.abs(rounded).toFixed(digits)} pts`;
+}
+
+// "2024-02" -> "feb 24". The backend buckets months as ISO year-month strings;
+// parsed as UTC noon so a negative timezone offset can't roll it back a month.
+export function monthLabel(month) {
+  const [year, index] = String(month).split('-').map(Number);
+  if (!year || !index) return month;
+  return new Date(Date.UTC(year, index - 1, 1, 12))
+    .toLocaleDateString(LOCALE, { month: 'short', year: '2-digit', timeZone: 'UTC' })
+    .replace('.', '');
+}
+
+export const LOCALE = 'es-CL';
+
+const UNITS = [
+  ['año', 'años', 31536000],
+  ['mes', 'meses', 2592000],
+  ['día', 'días', 86400],
+  ['hora', 'horas', 3600],
+  ['minuto', 'minutos', 60],
+];
+
+// ISO timestamp -> "recién" / "hace 3 horas" / "hace 2 días".
 export function relativeTime(iso) {
   const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return iso || 'unknown';
+  if (Number.isNaN(then)) return iso || 'fecha desconocida';
 
   const seconds = Math.round((Date.now() - then) / 1000);
-  if (seconds < 45) return 'just now';
+  if (seconds < 45) return 'recién';
 
-  const units = [
-    ['year', 31536000],
-    ['month', 2592000],
-    ['day', 86400],
-    ['hour', 3600],
-    ['minute', 60],
-  ];
-  for (const [name, size] of units) {
+  for (const [singular, plural, size] of UNITS) {
     const n = Math.round(seconds / size);
-    if (n >= 1) return `${n} ${name}${n > 1 ? 's' : ''} ago`;
+    if (n >= 1) return `hace ${n} ${n === 1 ? singular : plural}`;
   }
-  return 'just now';
+  return 'recién';
 }
 
 const DAY_MS = 86400 * 1000;

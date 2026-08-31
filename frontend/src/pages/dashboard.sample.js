@@ -31,6 +31,7 @@ const NEEDS = [
 ];
 const REGULATORY = ['health_data', 'financial_fiscal_data', 'minors_student_data', 'none_apparent', 'other'];
 const URGENCY = ['high', 'medium', 'low', 'unclear'];
+const INQUIRY_VOLUMES = ['low', 'medium', 'high', 'very_high', 'unclear'];
 const REPS = ['Camila Torres', 'Diego Rojas', 'Valentina Vega', 'Mateo Díaz', 'Josefa Muñoz', 'Benjamín Silva'];
 
 const NEEDS_BUCKETS = ['0', '1-2', '3-4', '5+'];
@@ -95,19 +96,6 @@ function repPerformance() {
   }).sort((a, b) => b.close_rate - a.close_rate || b.total - a.total);
 }
 
-function repPerformanceBySector() {
-  const rows = [];
-  for (const rep of REPS) {
-    for (const sector of SECTORS) {
-      if (rand() < 0.55) continue;
-      const total = between(2, 18);
-      const closed = Math.round(total * (0.1 + rand() * 0.6));
-      rows.push({ rep, sector, total, closed, close_rate: round4(closed / total) });
-    }
-  }
-  return rows.sort((a, b) => a.rep.localeCompare(b.rep) || b.total - a.total);
-}
-
 function needsComplexity() {
   return NEEDS_BUCKETS.map((bucket) => {
     const total = between(20, 140);
@@ -117,23 +105,168 @@ function needsComplexity() {
   });
 }
 
+// Rep × segment. Carries the segment's own rate and the rep's distance from it,
+// as _rep_group() does when given an extra key.
+function repPerformanceBySegment(values, field, keep = 0.45) {
+  const rows = [];
+  const segmentRate = new Map(values.map((v) => [v, 0.18 + rand() * 0.4]));
+  for (const rep of REPS) {
+    for (const value of values) {
+      if (rand() > keep) continue;
+      const total = between(2, 18);
+      const rate = Math.max(0, Math.min(1, segmentRate.get(value) + (rand() - 0.5) * 0.35));
+      const closed = Math.round(total * rate);
+      rows.push({
+        rep,
+        [field]: value,
+        total,
+        closed,
+        close_rate: round4(closed / total),
+        segment_close_rate: round4(segmentRate.get(value)),
+        lift: round4(closed / total - segmentRate.get(value)),
+      });
+    }
+  }
+  return rows.sort((a, b) => a.rep.localeCompare(b.rep) || b.total - a.total);
+}
+
+// Multi-select membership: groups overlap, so totals deliberately sum past the
+// population and each row carries its own lift — matches close_rate_by_membership().
+function membershipRows(values, base) {
+  return values
+    .map((value) => {
+      const total = between(25, 260);
+      const rate = Math.max(0.02, Math.min(0.95, base + (rand() - 0.45) * 0.34));
+      const closed = Math.round(total * rate);
+      return {
+        value,
+        total,
+        closed,
+        close_rate: round4(closed / total),
+        lift: round4(closed / total - base),
+      };
+    })
+    .sort((a, b) => b.close_rate - a.close_rate || b.total - a.total);
+}
+
+// Assembled from the datasets above rather than generated on its own, exactly
+// as signal_board() re-derives from the same rows — otherwise the sample would
+// show a ranking that contradicts the charts it's meant to summarise.
+function signalBoard(datasets, base, floor) {
+  const entries = [];
+  for (const [dimension, rows] of datasets) {
+    for (const row of rows) {
+      entries.push({
+        dimension,
+        value: row.group ?? row.value,
+        total: row.total,
+        closed: row.closed,
+        close_rate: row.close_rate,
+        lift: round4(row.close_rate - base),
+      });
+    }
+  }
+  return entries
+    .filter((entry) => entry.total >= floor)
+    .sort(
+      (a, b) =>
+        Math.abs(b.lift) - Math.abs(a.lift) ||
+        b.total - a.total ||
+        a.dimension.localeCompare(b.dimension)
+    );
+}
+
+const SAMPLE_MONTHS = Array.from({ length: 12 }, (_, i) => `2024-${String(i + 1).padStart(2, '0')}`);
+
+// A year of meetings, oldest first, drifting gently upward so the trend chart
+// has something to show.
+function monthlyTrend(base) {
+  return SAMPLE_MONTHS.map((month, i) => {
+    const total = between(18, 90);
+    const rate = Math.max(0.05, base - 0.1 + i * 0.017 + (rand() - 0.5) * 0.09);
+    const closed = Math.round(total * rate);
+    return { month, total, closed, close_rate: round4(closed / total) };
+  });
+}
+
+// Per-rep series. Months a rep took no meetings are omitted rather than zeroed
+// — the real aggregation does the same, and the line chart breaks its path over
+// them, so the sample has to exercise that gap.
+function repMonthlyTrend(base) {
+  const rows = [];
+  for (const rep of REPS) {
+    for (const [i, month] of SAMPLE_MONTHS.entries()) {
+      if (rand() < 0.18) continue;
+      const total = between(2, 14);
+      const rate = Math.max(0.03, Math.min(0.97, base - 0.08 + i * 0.015 + (rand() - 0.5) * 0.3));
+      const closed = Math.round(total * rate);
+      rows.push({ rep, month, total, closed, close_rate: round4(closed / total) });
+    }
+  }
+  return rows.sort((a, b) => a.rep.localeCompare(b.rep) || a.month.localeCompare(b.month));
+}
+
 export function buildSampleInsights() {
   rand = rng(20260830);
+
+  // Generated first: the sector cut partitions the population, so it defines
+  // both N and the house rate the rest of the payload is measured against.
+  const bySector = closeRateRows(SECTORS);
+  const rowsAggregated = bySector.reduce((sum, r) => sum + r.total, 0);
+  const base = round4(bySector.reduce((sum, r) => sum + r.closed, 0) / rowsAggregated);
+  const floor = Math.max(5, Math.floor(rowsAggregated / 100));
+
+  const byModel = closeRateRows(BUSINESS_MODELS);
+  const bySize = closeRateRows(BUSINESS_SIZES);
+  const byVolume = closeRateRows(INQUIRY_VOLUMES);
+  const byUrgency = closeRateRows(URGENCY);
+  const byDiscovery = closeRateRows(DISCOVERY_CHANNELS);
+  const byRegulatory = closeRateRows(REGULATORY);
+  const byNeed = membershipRows(NEEDS, base);
+  const byCurrentChannel = membershipRows(CHANNELS, base);
+
   return {
-    close_rate_by_sector: closeRateRows(SECTORS),
-    close_rate_by_business_model: closeRateRows(BUSINESS_MODELS),
-    close_rate_by_business_size: closeRateRows(BUSINESS_SIZES),
+    close_rate_by_sector: bySector,
+    close_rate_by_business_model: byModel,
+    close_rate_by_business_size: bySize,
     needs_frequency: frequencyRows(NEEDS, 'need'),
     discovery_channel_frequency: frequencyRows(DISCOVERY_CHANNELS, 'channel'),
     current_channel_frequency: frequencyRows(CHANNELS, 'channel'),
     rep_performance: repPerformance(),
-    rep_performance_by_sector: repPerformanceBySector(),
-    close_rate_by_urgency: closeRateRows(URGENCY),
+    rep_performance_by_sector: repPerformanceBySegment(SECTORS, 'sector'),
+    rep_performance_by_business_model: repPerformanceBySegment(BUSINESS_MODELS, 'business_model', 0.85),
+    close_rate_by_urgency: byUrgency,
     close_rate_by_needs_complexity: needsComplexity(),
-    close_rate_by_discovery_channel: closeRateRows(DISCOVERY_CHANNELS),
+    close_rate_by_discovery_channel: byDiscovery,
     sector_needs_matrix: needsMatrix(SECTORS, 'sector'),
-    close_rate_by_regulatory_flag: closeRateRows(REGULATORY),
+    close_rate_by_regulatory_flag: byRegulatory,
     size_needs_matrix: needsMatrix(BUSINESS_SIZES, 'business_size'),
+    close_rate_by_inquiry_volume: byVolume,
+    close_rate_by_need: byNeed,
+    close_rate_by_current_channel: byCurrentChannel,
+    signal_board: signalBoard(
+      [
+        ['sector', bySector],
+        ['business_model', byModel],
+        ['business_size', bySize],
+        ['inquiry_volume', byVolume],
+        ['discovery_channel', byDiscovery],
+        ['regulatory_flag', byRegulatory],
+        ['pain_point_urgency', byUrgency],
+        ['client_needs', byNeed],
+        ['current_channels', byCurrentChannel],
+      ],
+      base,
+      floor
+    ),
+    close_rate_by_month: monthlyTrend(base),
+    rep_performance_by_month: repMonthlyTrend(base),
+    _meta: {
+      rows_aggregated: rowsAggregated,
+      base_rate: base,
+      min_sample: floor,
+      rows_without_date: 0,
+    },
     computed_at: new Date(Date.now() - 3 * 3600 * 1000).toISOString(),
   };
 }

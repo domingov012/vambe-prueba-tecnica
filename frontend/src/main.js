@@ -21,7 +21,8 @@ registerRoute('/dashboard', renderDashboardPage);
 function notFound(mount) {
   const p = document.createElement('div');
   p.className = 'page';
-  p.innerHTML = '<h1 class="page__title">Not found</h1><p class="page__subtitle">No page for this route.</p>';
+  p.innerHTML =
+    '<h1 class="page__title">Página no encontrada</h1><p class="page__subtitle">No hay ninguna página en esta ruta.</p>';
   mount.appendChild(p);
 }
 

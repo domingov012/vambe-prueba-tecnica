@@ -138,12 +138,17 @@ class TranscriptClassification(BaseModel):
 class EnhancedTranscript(Document, TranscriptClassification):
     id: str
     meeting: Link[MeetingTranscript]
-    # Denormalized from the source MeetingTranscript at enrichment time. Both are
-    # immutable source-of-truth fields (never LLM-inferred, never edited), so
+    # Denormalized from the source MeetingTranscript at enrichment time. All three
+    # are immutable source-of-truth fields (never LLM-inferred, never edited), so
     # copying them here lets every dashboard aggregation read a single collection
     # with no join. See app/aggregation/rows.py.
     closed: bool
     salesperson: str
+    # Optional only because rows enriched before this field existed don't have it
+    # — a required field would fail validation on read and take the whole
+    # dashboard down. `scripts/backfill_enhanced_meeting_date.py` fills them in;
+    # `close_rate_by_month` counts whatever is still missing into `_meta`.
+    meeting_date: date | None = None
 
     class Settings:
         name = "enhanced_transcripts"
