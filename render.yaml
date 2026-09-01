@@ -1,0 +1,42 @@
+# Render Blueprint. Deploys the single self-contained image built by the
+# repo-root Dockerfile — FastAPI serves both /api and the built SPA out of
+# ./static, so no nginx service is needed here. (docker-compose.yml is the
+# local-review topology and Render does not read it.)
+#
+# Render injects PORT; the Dockerfile's CMD already reads ${PORT}, so nothing
+# platform-specific is baked into the image.
+
+services:
+  - type: web
+    name: vambe-insights
+    runtime: docker
+    plan: free
+    region: oregon # free tier also offers frankfurt / singapore / ohio / virginia
+
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+
+    # Fails the deploy loudly if the app can't reach Mongo, rather than
+    # serving a broken instance — init_db() runs in the lifespan, so /health
+    # only answers once the database connection is actually up.
+    healthCheckPath: /health
+
+    autoDeploy: true
+
+    # Deliberately one instance. The enrichment queue is an in-process
+    # asyncio.Queue (app/llm/jobs.py); a second instance would get its own
+    # queue and its own worker loop. Do not scale this horizontally.
+
+    envVars:
+      # All secrets: `sync: false` means Render prompts for the value on first
+      # deploy and stores it encrypted. Nothing sensitive is committed here or
+      # baked into the image.
+      - key: MONGO_URI
+        sync: false
+      - key: LLM_PROVIDER
+        sync: false
+      # Set whichever matches LLM_PROVIDER; leave the other blank.
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false

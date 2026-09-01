@@ -1,0 +1,34 @@
+# Keep the build context small — without this the local virtualenv, the
+# frontend's node_modules and the 10k-row sample CSV all get shipped to the
+# Docker daemon on every build.
+venv/
+.venv/
+**/node_modules/
+frontend/dist/
+
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+
+data/
+*.ipynb
+.ipynb_checkpoints/
+
+.git/
+.gitignore
+.claude/
+.env
+
+# Docs only. Note this is deliberately not a blanket `*.md`:
+# app/llm/prompts/system.md is a runtime asset, not documentation.
+/README.md
+/aggregations.md
+app/CLAUDE.md
+frontend/CLAUDE.md
+frontend/README.md
+
+Dockerfile
+frontend/Dockerfile
+docker-compose.yml
+.dockerignore

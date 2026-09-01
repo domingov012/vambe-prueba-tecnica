@@ -6,7 +6,8 @@ FastAPI + MongoDB (Beanie ODM) app: ingest client meeting transcripts from CSV, 
 
 ```
 app/
-├── main.py              # FastAPI instance, lifespan (Mongo connect/disconnect), router includes
+├── main.py              # FastAPI instance, lifespan (Mongo connect/disconnect), router includes,
+│                        #   /health, and an optional SPA mount (../static, only when built)
 ├── config.py             # Settings (env vars via pydantic-settings)
 ├── models/                # Beanie Documents — the only place schemas are defined
 │   ├── client.py           # Client

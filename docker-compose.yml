@@ -1,0 +1,36 @@
+# Local review setup. `docker compose up --build` then open http://localhost:8080
+#
+# MongoDB is intentionally not a service here: the enrichment pipeline writes
+# clients/meetings/enhanced rows in a single transaction, which needs a replica
+# set. Point MONGO_URI at Atlas (its free M0 tier is a replica set). A local
+# standalone mongod cannot run those transactions.
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # MONGO_URI, LLM_PROVIDER and the API keys come from .env (see .env.example).
+    env_file: .env
+    environment:
+      PORT: 8000
+    # Not published — nginx is the only way in, which keeps the browser
+    # same-origin and means the frontend needs no CORS or absolute API URL.
+    expose:
+      - "8000"
+    # The enrichment worker is in-process and a batch can legitimately run for
+    # minutes; give the lifespan shutdown room to finish rather than letting
+    # docker's 10s default SIGKILL it mid-job.
+    stop_grace_period: 60s
+    restart: unless-stopped
+
+  web:
+    build:
+      # Repo root, not ./frontend — the image needs deploy/nginx.conf too.
+      context: .
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
