@@ -11,7 +11,7 @@ export function renderNav(container) {
 
   const brand = document.createElement('span');
   brand.className = 'nav__brand';
-  brand.textContent = 'Vambe';
+  brand.textContent = 'Vambe - Prueba Técnica';
   nav.appendChild(brand);
 
   LINKS.forEach(({ path, label }) => {

@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -5,14 +6,74 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import dashboard, ingestion, jobs
+from app.config import get_settings
 from app.db.session import close_db, init_db
 from app.llm.client import close_llm_client, init_llm_client
-from app.llm.jobs import start_worker, stop_worker
+from app.llm.jobs import fail_orphaned_jobs, start_worker, stop_worker
+from app.logging_config import configure_logging
+
+# At import for anything that loads the app without a server; again in the
+# lifespan because uvicorn applies its own dictConfig after this module is
+# imported, and that is the call that reliably wins.
+configure_logging()
+
+logger = logging.getLogger(__name__)
+
+
+def _warn_on_inconsistent_timeouts(settings) -> None:
+    """The four LLM ceilings are meant to nest. Say so out loud when they don't.
+
+    An over-large `LLM_REQUEST_TIMEOUT_SECONDS` is the failure that is hardest to
+    see from the outside: a single hung connection then holds a batch for as long
+    as it likes, the retry loop never gets a turn, and the job just sits at
+    `running` with no error. The outer ceilings now cut it off regardless, but
+    the config is still wrong and worth flagging rather than silently clamping.
+    """
+    if settings.llm_request_timeout_seconds > settings.llm_batch_timeout_seconds:
+        logger.warning(
+            "LLM_REQUEST_TIMEOUT_SECONDS (%.0fs) exceeds LLM_BATCH_TIMEOUT_SECONDS (%.0fs): a "
+            "single request can consume the whole batch budget, so LLM_MAX_RETRIES never gets "
+            "to retry. Set the request timeout well below the batch ceiling.",
+            settings.llm_request_timeout_seconds,
+            settings.llm_batch_timeout_seconds,
+        )
+    if settings.llm_batch_timeout_seconds > settings.llm_batch_max_stall_seconds:
+        logger.warning(
+            "LLM_BATCH_TIMEOUT_SECONDS (%.0fs) exceeds LLM_BATCH_MAX_STALL_SECONDS (%.0fs): "
+            "a batch gets only one attempt before its stall budget is gone.",
+            settings.llm_batch_timeout_seconds,
+            settings.llm_batch_max_stall_seconds,
+        )
+    if settings.llm_batch_max_stall_seconds > settings.llm_job_timeout_seconds:
+        logger.warning(
+            "LLM_BATCH_MAX_STALL_SECONDS (%.0fs) exceeds LLM_JOB_TIMEOUT_SECONDS (%.0fs): "
+            "one stalled batch can consume the entire job deadline.",
+            settings.llm_batch_max_stall_seconds,
+            settings.llm_job_timeout_seconds,
+        )
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    configure_logging()
+    settings = get_settings()
+    logger.info(
+        "Starting up: db=%s, llm_provider=%s, batch_size=%d, cap=%d, "
+        "timeouts(request/batch/stall/job)=%.0f/%.0f/%.0f/%.0fs",
+        settings.mongo_db_name,
+        settings.llm_provider,
+        settings.llm_batch_size,
+        settings.llm_max_transcripts_per_job,
+        settings.llm_request_timeout_seconds,
+        settings.llm_batch_timeout_seconds,
+        settings.llm_batch_max_stall_seconds,
+        settings.llm_job_timeout_seconds,
+    )
+    _warn_on_inconsistent_timeouts(settings)
     await init_db()
+    # Jobs left `running` by the previous process can never resume — the queue
+    # was in-memory. Close them out before the UI polls and shows them as live.
+    await fail_orphaned_jobs()
     init_llm_client()
     start_worker()
     yield

@@ -1,7 +1,11 @@
+import logging
+
 import httpx
 
 from app.config import get_settings
-from app.llm.providers.base import RateLimiter, post_with_retries
+from app.llm.providers.base import LLMError, RateLimiter, post_with_retries
+
+logger = logging.getLogger(__name__)
 
 _http: httpx.AsyncClient | None = None
 _rate_limiter: RateLimiter | None = None
@@ -36,4 +40,42 @@ async def chat_completion(messages: list[dict[str, str]]) -> str:
     response = await post_with_retries(
         _http, "/chat/completions", payload, _rate_limiter, "OpenRouter"
     )
-    return response.json()["choices"][0]["message"]["content"]
+
+    try:
+        body = response.json()
+    except ValueError as exc:
+        raise LLMError(
+            f"OpenRouter returned a 200 that is not JSON: {response.text[:500]!r}",
+            kind="bad_response",
+        ) from exc
+
+    # OpenRouter reports some upstream failures as a 200 carrying an `error`
+    # object and no `choices` — an unguarded ["choices"][0] turned that into a
+    # bare KeyError that told the operator nothing.
+    if body.get("error"):
+        raise LLMError(f"OpenRouter returned an error body: {body['error']}", kind="bad_response")
+
+    try:
+        choice = body["choices"][0]
+        content = choice["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise LLMError(
+            f"OpenRouter returned no completion content: {str(body)[:500]}",
+            kind="bad_response",
+        ) from exc
+
+    # finish_reason="length" means the JSON the caller is about to parse is
+    # truncated mid-object — the fix is a smaller LLM_BATCH_SIZE, not a retry.
+    if choice.get("finish_reason") == "length":
+        logger.warning(
+            "OpenRouter truncated the completion (finish_reason=length) — the response is "
+            "incomplete; lower LLM_BATCH_SIZE"
+        )
+
+    if not (content or "").strip():
+        raise LLMError(
+            f"OpenRouter returned an empty completion "
+            f"(finish_reason={choice.get('finish_reason')})",
+            kind="bad_response",
+        )
+    return content

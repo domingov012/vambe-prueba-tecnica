@@ -22,11 +22,32 @@ class Settings(BaseSettings):
     llm_max_retries: int = 5
     llm_batch_size: int = 10
     llm_max_transcripts_per_job: int = 100
-    # Per-request HTTP timeout. A batch that the model can't answer within this
-    # window raises a transport error (retried by post_with_retries). Keep it
-    # comfortably above a slow generation; shrink LLM_BATCH_SIZE if batches of
-    # this size routinely time out rather than bumping this much higher.
-    llm_request_timeout_seconds: float = 120.0
+    # Per-request HTTP timeout. Measured throughput for gemma-4-31b-it on the
+    # Google free tier is ~22s per transcript (3 transcripts in 67s), so the
+    # default batch of 10 needs ~220s — the old 120s default could not fit one
+    # and every batch timed out, retried, and then stalled. Budget roughly
+    # `LLM_BATCH_SIZE × 30s` and keep it under LLM_BATCH_TIMEOUT_SECONDS; drop
+    # LLM_BATCH_SIZE rather than raising this without measuring.
+    llm_request_timeout_seconds: float = 300.0
+
+    # --- Wall-clock ceilings ---------------------------------------------
+    # Three nested deadlines, each bounding the layer below it. They exist
+    # because llm_request_timeout_seconds bounds only a *single* HTTP request:
+    # post_with_retries multiplies it by llm_max_retries, and the job's stall
+    # tolerance then multiplies *that* again, so without these a "120s timeout"
+    # could keep one batch alive for hours — which is exactly how a job ends up
+    # sitting at `running` with 0 processed and nothing to show for it.
+    #
+    # 1. One enrich_batch() call including its internal retries. ~2 requests.
+    llm_batch_timeout_seconds: float = 660.0
+    # 2. One batch including stall-tolerance re-attempts of enrich_batch().
+    llm_batch_max_stall_seconds: float = 1500.0
+    # 3. The whole job. On expiry the remaining batches are abandoned and the
+    #    job is marked failed rather than left running indefinitely. 10 batches
+    #    of 10 at measured speed is ~40min; this leaves room for a few retries.
+    llm_job_timeout_seconds: float = 5400.0
+
+    log_level: str = "INFO"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

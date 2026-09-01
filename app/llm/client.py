@@ -8,10 +8,19 @@ provider selected by `LLM_PROVIDER` (see `app/config.py`). Every provider in
 
 from app.config import get_settings
 from app.llm.providers import google, openrouter
-from app.llm.providers.base import LLMError
+from app.llm.providers.base import LLMError, LLMFatalError
 
 # Backwards-compatible alias — the error is provider-agnostic now.
 OpenRouterError = LLMError
+
+__all__ = [
+    "LLMError",
+    "LLMFatalError",
+    "OpenRouterError",
+    "chat_completion",
+    "close_llm_client",
+    "init_llm_client",
+]
 
 _PROVIDERS = {
     "openrouter": openrouter,

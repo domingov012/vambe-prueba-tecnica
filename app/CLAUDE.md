@@ -87,14 +87,57 @@ the commit window. Needs a replica set (Atlas is one); a standalone `mongod` can
 - **No premature abstraction.** Don't add a repository/service layer, config option, or interface until there's a second concrete use that needs it. Empty stub directories (`db/repositories`, `llm/processors`) exist because the structure was agreed on, not because they need content yet — fill them when a real need shows up.
 - **Business rules belong next to the logic they govern**, not in routes. E.g. client dedup (match on `name` + `email` + `phone_number`) lives in `ingestion/service.py::get_or_create_clients` and is mirrored by a compound unique index on `Client`, not re-implemented per caller. Dedup is **bulk** — one `$in` read + one `insert_many` per batch, never a query per row (a per-row loop against a remote cluster is what made 10k-row uploads crash).
 
-## LLM calling (for the upcoming enrichment step)
+## LLM calling
 
 - Two providers, selected by `LLM_PROVIDER` (`openrouter` default, or `google` for the Google Developer API — Gemini/Gemma direct). Same `chat_completion(messages) -> str` contract either way; callers don't branch on provider.
   - `openrouter`: `OPENROUTER_MODEL` (default `google/gemma-4-31b-it:free`), `OPENROUTER_API_KEY`.
   - `google`: `GOOGLE_MODEL` (default `gemma-4-31b-it`), `GOOGLE_API_KEY`. Switch here when OpenRouter's shared free pool throttles too hard. Gemma on the Google API takes no `system` role, so `providers/google.py` folds system text into the first user turn; it also drops `"thought": true` reasoning parts, returning only the answer text.
 - Each provider rate-limits (`LLM_REQUESTS_PER_MINUTE`, 20/min default) and, via the shared
   `base.post_with_retries`, retries **429, 5xx *and* transport errors** (read timeout, dropped
-  connection) with backoff up to `LLM_MAX_RETRIES`, then raises `LLMError`. Per-request HTTP
-  timeout is `LLM_REQUEST_TIMEOUT_SECONDS` (120s). Callers just await `chat_completion(messages)`.
-- The free Gemma pool can 429 at an **upstream shared-pool** level (all OpenRouter free users, not just our account) — seen intermittently in testing, unrelated to our own rate limit. And `generateContent` is non-streaming, so a slow batch can outlast the HTTP timeout and surface as `httpx.ReadTimeout`. `jobs._enrich_with_stall_tolerance` absorbs both: it retries an `LLMError` batch with escalating backoff for up to `_STALL_MAX_ELAPSED` (30 min), then gives up — that batch's transcripts stay unenriched (`failed_count`) and the job still completes; a later re-upload retries just them.
-- `Transcripcion` rows average ~130 tokens — token/context limits are a non-issue; **request count** is the real constraint on the free tier. Batch multiple transcripts per request (`LLM_BATCH_SIZE`, 10) to cut request count — but too large a batch makes each `generateContent` slow enough to time out, so that's the knob to turn down first if batches start timing out.
+  connection) with backoff up to `LLM_MAX_RETRIES`, then raises `LLMError`. A **non-429 4xx** raises
+  `LLMFatalError` on the first attempt instead — a refused key or unknown model won't fix itself, and
+  stalling on it only hides the cause. `LLMError.kind` (`timeout`, `rate_limit`, `server_error`,
+  `client_error`, `transport`, `bad_response`) is what the job row reports.
+- **Four nested wall-clock ceilings.** `LLM_REQUEST_TIMEOUT_SECONDS` bounds one HTTP request only;
+  `post_with_retries` multiplies it by `LLM_MAX_RETRIES` and the stall loop multiplies *that* again.
+  So each layer has its own deadline, checked against `time.monotonic()`:
+  `LLM_REQUEST_TIMEOUT_SECONDS` (300) < `LLM_BATCH_TIMEOUT_SECONDS` (660, one `enrich_batch` incl.
+  retries, enforced with `asyncio.timeout`) < `LLM_BATCH_MAX_STALL_SECONDS` (1500, one batch incl.
+  stall re-attempts) < `LLM_JOB_TIMEOUT_SECONDS` (5400, the whole job). `main._warn_on_inconsistent_timeouts`
+  logs a warning at startup when they stop nesting. **Never sum the sleeps to measure elapsed time** —
+  that was the original bug: the stall loop counted only its own `asyncio.sleep` calls and ignored the
+  hours it spent inside `enrich_batch`, so its "30 minute cap" allowed several hours per batch and a
+  job sat at `running / 0 processed` indefinitely.
+- **Sizing.** Measured: ~22s per transcript (3 in 67s on gemma-4-31b-it, Google free tier). So
+  `LLM_BATCH_SIZE` 10 needs ~220s and the old 120s request timeout could not fit a single batch.
+  Budget ~30s × `LLM_BATCH_SIZE` for the request timeout. `Transcripcion` rows average ~130 tokens, so
+  token/context limits are a non-issue; **request count** is the free-tier constraint, which is why
+  batching exists at all — prefer a bigger request timeout to a smaller batch until batches get slow
+  enough to risk the job deadline.
+- The free Gemma pool can 429 at an **upstream shared-pool** level (all OpenRouter free users, not just our account) — seen intermittently in testing, unrelated to our own rate limit. And `generateContent` is non-streaming, so a slow batch can outlast the HTTP timeout and surface as `httpx.ReadTimeout`. `jobs._enrich_with_stall_tolerance` absorbs both: it retries an `LLMError` batch with escalating backoff until the batch stall budget (or the job deadline) runs out, then gives up — that batch's transcripts stay unenriched (`failed_count`, `failed_batches`) and the job still completes; a later re-upload retries just them.
+- **Parsing failures never cost more than their batch.** `enrich_batch` returns a `BatchOutcome`
+  (`classified` / `error` / `error_kind` / `invalid_count` / `missing_count`), not a bare list, so
+  "the model wrote prose", "the JSON was truncated" and "every item failed validation" reach the job
+  as distinct reasons instead of an indistinguishable empty list. A truncated response (opened a
+  container, never closed it) is reported as such, because its fix is a smaller `LLM_BATCH_SIZE`.
+  A single-key object wrapping the array (`{"results": [...]}`) is unwrapped rather than discarded.
+  Per-item validation errors skip that item only.
+
+## Observability
+
+- **`app/logging_config.py` must run.** Uvicorn's dictConfig only touches the `uvicorn*` loggers and
+  leaves root bare, so without `configure_logging()` every `app.*` record falls through to
+  `logging.lastResort` — WARNING and up, no timestamps, INFO silently dropped. It is called at import
+  of `app.main` and again in the lifespan (which runs after uvicorn's own config, and is the call that
+  wins). `LOG_LEVEL=DEBUG` additionally dumps every raw LLM response.
+- **A job explains itself from `GET /api/jobs`.** `error` is the fatal reason (set only when `failed`);
+  `last_error` / `last_error_kind` / `last_error_at` are the most recent *non-fatal* problem, written
+  while the job is still running — that is what a job sitting at 0 processed shows instead of nothing.
+  `failed_batches` counts abandoned batches (`failed_count` counts transcripts).
+- **A job that classified nothing fails.** It used to end `completed` with 0 processed, which reads as
+  "there was nothing to do" — the opposite of what happened.
+- **Orphans are reconciled at startup.** `jobs.fail_orphaned_jobs()` runs in the lifespan and marks any
+  job left `queued`/`running` by a previous process as failed. The queue is an in-process
+  `asyncio.Queue` and the rows only ever live in memory, so nothing can resume — but the job document
+  survives, and on a free host that idles the container mid-job, a permanently-`running` row is the
+  likeliest reason a job looks stuck.

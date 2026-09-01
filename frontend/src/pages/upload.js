@@ -161,14 +161,18 @@ export function renderUploadPage(mount) {
           j.failed_count > 0
             ? ` · <span style="color:var(--flare)">${j.failed_count} con error</span>`
             : '';
-        const errNote =
-          j.status === 'failed' && j.error
-            ? `<div class="hint" style="color:var(--flare)">${j.error}</div>`
-            : '';
+        // A fatal `error` explains a failed job; `last_error` explains a job
+        // that is still running but not advancing — the case that used to show
+        // "running, 0/N" with nothing to go on. Show whichever exists.
+        const message =
+          j.status === 'failed' && j.error ? j.error : j.last_error ? j.last_error : '';
+        const errNote = message
+          ? `<div class="hint" style="color:var(--flare)">${escapeHtml(message)}</div>`
+          : '';
         return `
           <tr>
             <td>${shortId(j._id || j.id)}</td>
-            <td>${j.filename || '—'}</td>
+            <td>${j.filename ? escapeHtml(j.filename) : '—'}</td>
             <td>
               <div class="progress"><div class="progress__bar" style="width:${pct}%"></div></div>
               <span class="hint">${progressText}${skippedNote}${failedNote}</span>
@@ -219,6 +223,14 @@ export function renderUploadPage(mount) {
 
 function shortId(id) {
   return id ? String(id).slice(-6) : '—';
+}
+
+// Job errors quote the model's own output and filenames come from the user;
+// both land in an innerHTML template.
+function escapeHtml(text) {
+  const el = document.createElement('span');
+  el.textContent = String(text);
+  return el.innerHTML;
 }
 
 function formatDate(iso) {

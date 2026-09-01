@@ -43,6 +43,17 @@ services:
 
       - key: LLM_PROVIDER
         sync: false
+
+      # Pinned, not prompted: measured throughput is ~22s per transcript, so a
+      # default batch of 10 needs ~220s. The old 120s default could not fit one
+      # batch — every request timed out, burned its retries, then sat in the
+      # stall loop, which is what left a job at "running / 0 of 100" with no
+      # error. Keep this above LLM_BATCH_SIZE x 30s.
+      - key: LLM_REQUEST_TIMEOUT_SECONDS
+        value: "300"
+
+      - key: LOG_LEVEL
+        value: INFO
       # Set whichever matches LLM_PROVIDER; leave the other blank.
       - key: GOOGLE_API_KEY
         sync: false

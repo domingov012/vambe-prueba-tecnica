@@ -1,9 +1,13 @@
+import logging
+
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
 
 from app.api.response_models.ingestion import IngestionResponse, IngestionSummary
 from app.ingestion.csv_loader import CSVValidationError, parse_csv
 from app.ingestion.mappers import parse_row
 from app.llm.jobs import enqueue_enrichment_job
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ingestion", tags=["ingestion"])
 
@@ -18,14 +22,18 @@ async def upload_csv(
         raise HTTPException(status_code=400, detail="File must be a .csv file")
 
     raw_bytes = await file.read()
+    logger.info("CSV upload received: %r (%d bytes)", file.filename, len(raw_bytes))
     try:
         rows = [parse_row(row) for row in parse_csv(raw_bytes)]
     except CSVValidationError as exc:
+        logger.warning("Rejected %r: %s", file.filename, exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except (ValueError, KeyError) as exc:
+        logger.warning("Rejected %r: malformed row: %s", file.filename, exc)
         raise HTTPException(status_code=422, detail=f"Malformed CSV row: {exc}") from exc
 
     if not rows:
+        logger.warning("Rejected %r: no data rows", file.filename)
         raise HTTPException(status_code=422, detail="CSV has no data rows")
 
     # Everything past here — de-dup, the max_transcripts cap, the LLM calls and

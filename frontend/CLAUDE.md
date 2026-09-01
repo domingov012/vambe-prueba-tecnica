@@ -121,15 +121,14 @@ frontend/
   computed yet) from a real failure.
 
 - **Dashboard** (`src/pages/dashboard.js`) — one fetch of
-  `GET /api/dashboard/insights`, one loading state, **nine sections** rendered
+  `GET /api/dashboard/insights`, one loading state, **eight sections** rendered
   from the precomputed payload (no per-chart fetching, no client-side
-  aggregation — see `aggregations.md`). The 20 datasets collapse into nine
-  because several answer the same question along a different axis; every
-  selector below re-slices arrays **already in memory**, never refetches:
+  aggregation — see `aggregations.md`). The datasets collapse into eight
+  sections because several answer the same question along a different axis;
+  every selector below re-slices arrays **already in memory**, never refetches:
 
   | Section | Datasets | Interaction |
   |---|---|---|
-  | Qué predice un cierre | `signal_board` | dimension dropdown + top 12 / show all |
   | Conversión mes a mes | `close_rate_by_month` + `rep_performance_by_month` | rep dropdown (team line stays behind as context) |
   | Tasa de conversión por vendedor | `rep_performance` + `_by_sector` + `_by_business_model` | segment cut tabs + value dropdown; click a rep to expand |
   | Tasa de conversión por segmento | the 7 `close_rate_by_*` | dimension tabs + rate/volume sort |
@@ -210,7 +209,13 @@ frontend/
      `_id` (Beanie serializes the id under its `_id` alias), `filename`,
      `status`, `rows_in_file`, `skipped_existing`, `total_candidates`
      (0 until the job starts running — rows sent to the LLM after de-dup + cap),
-     `processed_count`, `failed_count`, `error`, `created_at`
+     `processed_count`, `failed_count`, `failed_batches`, `error`, `created_at`.
+     Two error fields, deliberately: `error` is the fatal reason and is only set
+     when `status` is `failed`; **`last_error` (+ `last_error_kind`,
+     `last_error_at`) is the most recent non-fatal problem and is written while
+     the job is still `running`** — a job stalled on LLM timeouts shows its
+     reason there rather than sitting at "0 / 100" with nothing to go on. The
+     jobs table renders whichever is present.
    - `GET  /api/jobs/{id}` — single job detail
    - `GET  /api/dashboard/insights` — all chart datasets in one precomputed blob
      (`{ <20 dataset keys>, _meta, computed_at }`); 404 until an enrichment job

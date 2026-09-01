@@ -1,31 +1,3 @@
-// Dashboard page — one fetch of GET /api/dashboard/insights, nine stacked
-// sections rendered from the precomputed payload. No per-chart fetching and no
-// re-aggregation: every selector below re-slices arrays already in memory.
-//
-// Nineteen datasets collapse into nine sections because several of them answer
-// the same question along a different axis:
-//
-//   close rate ×7 dimensions    -> one bar list + a dimension tab strip
-//   sector / size needs matrix  -> one heatmap + a two-way toggle
-//   rep totals + rep × segment  -> one bar list, filtered by a segment dropdown
-//   needs / channels: count+rate-> one section each, with a measure toggle
-//
-// The two channel datasets deliberately stay apart: "discovery" is how a client
-// heard about Vambe, "current" is the support channel they run today. Same word,
-// unrelated questions — merging them behind a toggle invites misreading.
-//
-// Baselines come from `_meta.base_rate`, never from summing a dataset's group
-// totals: the needs and channel datasets are multi-select, so their groups
-// overlap and their totals sum past the population. Same for `_meta.min_sample`
-// — one gate, published by the backend, applied identically everywhere.
-//
-// UI copy is Spanish (the team is internal, Chile); enum values, rep names and
-// selector options stay in the language the data arrives in.
-//
-// While the database is empty the endpoint 404s; the page then offers a
-// "sample data" mode that renders every section against a synthetic payload
-// (src/pages/dashboard.sample.js) so the visuals can be verified.
-
 import { getDashboardInsights } from '../api.js';
 import { percent, count, humanize, relativeTime, isStale } from '../format.js';
 import { createProportionList, createCountList } from '../components/barList.js';
@@ -41,14 +13,6 @@ const SIZE_ORDER = ['solo_micro', 'small', 'medium', 'large', 'unclear'];
 const VOLUME_ORDER = ['low', 'medium', 'high', 'very_high', 'unclear'];
 const COMPLEXITY_ORDER = ['0', '1-2', '3-4', '5+'];
 
-// The seven ways to cut the same set of meetings. `order` marks a dimension as
-// ordinal — its natural sequence carries meaning, so the sort toggle is hidden.
-// Every one of these partitions the population; the multi-select cuts (needs,
-// channels in use) live in their own sections precisely because they don't.
-// The enum values the classifier assigns are thresholds, not adjectives — the
-// prompt defines them (app/llm/prompts/system.md §5) and without the ranges
-// "high" vs "very_high" is a guess. Spelled out on the chart rather than in the
-// note: a reader comparing two bars shouldn't have to hold a legend in memory.
 const VOLUME_RANGES = {
   low: '<100/sem',
   medium: '100–500/sem',
@@ -77,14 +41,6 @@ const MATRIX_VIEWS = {
   business_size: { key: 'size_needs_matrix', rowKey: 'business_size', label: 'By size' },
 };
 
-// The two segments a rep's book can be cut by. Both datasets carry
-// `segment_close_rate` + `lift`, so a filtered view compares each rep against
-// the segment rather than against the house.
-//
-// `label` is the selector option (English, like every other dimension name on
-// the page); `noun` is the same thing inside a Spanish sentence, which "model"
-// can't be — the two aren't interchangeable and one lowercased into the other
-// reads as a bug.
 const REP_CUTS = {
   sector: { key: 'rep_performance_by_sector', field: 'sector', label: 'Sector', noun: 'sector' },
   business_model: {
@@ -93,20 +49,6 @@ const REP_CUTS = {
     label: 'Model',
     noun: 'modelo de negocio',
   },
-};
-
-// Signal-board rows name their dimension by its backend field; label them with
-// the same words the tab strip uses so the two sections agree.
-const SIGNAL_DIMENSIONS = {
-  sector: 'Sector',
-  business_model: 'Model',
-  business_size: 'Size',
-  inquiry_volume: 'Volume',
-  discovery_channel: 'Discovery',
-  regulatory_flag: 'Regulated',
-  pain_point_urgency: 'Urgency',
-  client_needs: 'Need',
-  current_channels: 'Channel',
 };
 
 export function renderDashboardPage(mount) {
@@ -184,7 +126,6 @@ export function renderDashboardPage(mount) {
     // invites judging a rep on a snapshot.
     disposeSections.forEach((dispose) => dispose());
     disposeSections = [
-      signalSection,
       timelineSection,
       repSection,
       closeRateSection,
@@ -267,10 +208,7 @@ function renderHero(el, payload) {
       <span><b>${percent(totals.rate, 1)}</b> cerradas · ${count(totals.closed)} negocios</span>
       <span>${count(totals.total - totals.closed)} no cerradas</span>
     </div>
-    <p class="hero__caption">
-      Cada gráfico de esta página es un corte de esta barra. El largo indica la
-      tasa de conversión; el grosor, cuántas reuniones respaldan el dato.
-    </p>`;
+  `;
 
   const fill = el.querySelector('.hero__fill');
   requestAnimationFrame(() => {
@@ -352,105 +290,7 @@ function axis(container, left, right) {
   container.appendChild(el);
 }
 
-// --- 1. Signal board --------------------------------------------------------
-// Every attribute the classifier assigns, ranked by how far its close rate sits
-// from the house average. It's the summary the seven sections below decompose:
-// one screen that answers "what actually predicts a close" without clicking
-// through every dimension. Small groups are dropped by the backend, not dimmed
-// — a ranking that includes them is a ranking of the smallest groups.
-
-function signalSection(parent, payload) {
-  const rows = payload.signal_board;
-  const base = baseRate(payload);
-  const gate = minSample(payload);
-
-  const sect = section(parent, { eyebrow: 'Señales', title: 'Qué predice un cierre', note: '' });
-
-  if (!Array.isArray(rows) || !rows.length) {
-    emptyState(sect.body, 'Aún no hay grupos con muestra suficiente para comparar.');
-    return;
-  }
-
-  const TOP = 12;
-  let dimension = ALL;
-  let showAll = false;
-
-  // Only dimensions that survived the sample gate — offering a filter that
-  // lands on an empty chart is worse than not offering it.
-  const present = [...new Set(rows.map((row) => row.dimension))];
-  const options = [
-    { value: ALL, label: 'Todas' },
-    ...present
-      .map((value) => ({ value, label: SIGNAL_DIMENSIONS[value] || humanize(value) }))
-      .sort((a, b) => a.label.localeCompare(b.label)),
-  ];
-
-  const picker = createDropdown({
-    label: 'Dimensión',
-    options,
-    value: dimension,
-    onChange: (v) => {
-      dimension = v;
-      showAll = false;
-      draw();
-    },
-  });
-  sect.controls.appendChild(picker.el);
-
-  const list = createProportionList(sect.body, {
-    labelWidth: '250px',
-    subMode: 'lift',
-    // "other" and "unclear" appear under several dimensions — the value alone
-    // is not a unique row key here.
-    keyOf: (row) => `${row.dimension}:${row.value}`,
-    labelFormat: (key) => {
-      const [dim, ...rest] = String(key).split(':');
-      const value = humanize(rest.join(':'));
-      // Within one dimension the prefix is the same on every row and only eats
-      // label width; across dimensions it's the only thing telling them apart.
-      return dimension === ALL
-        ? `${SIGNAL_DIMENSIONS[dim] || humanize(dim)} · ${value}`
-        : value;
-    },
-  });
-
-  const toggle = document.createElement('button');
-  toggle.className = 'btn btn--ghost btn--sm';
-  toggle.addEventListener('click', () => {
-    showAll = !showAll;
-    draw();
-  });
-  sect.controls.appendChild(toggle);
-
-  function draw() {
-    const all = dimension === ALL;
-    const scoped = all ? rows : rows.filter((row) => row.dimension === dimension);
-    // Mixed, the ranking is by distance from the average in either direction —
-    // the strongest signals, whichever way they point. Inside one dimension the
-    // values are a set to be read in order, so they sort best to worst.
-    const ordered = all ? scoped : [...scoped].sort((a, b) => b.lift - a.lift);
-
-    sect.noteEl.textContent =
-      `Distancia entre la tasa de conversión del grupo y la general (${percent(base, 1)}), ` +
-      `en puntos porcentuales. Sólo grupos con n ≥ ${gate}. ` +
-      (all
-        ? 'Ordenado por magnitud, hacia arriba o hacia abajo. '
-        : `Todos los valores de ${SIGNAL_DIMENSIONS[dimension] || humanize(dimension)} que alcanzan la muestra mínima, de mejor a peor. `) +
-      'Son asociaciones, no causas: un sector que convierte bien arrastra a los canales y necesidades que lo acompañan.';
-
-    toggle.hidden = ordered.length <= TOP;
-    toggle.textContent = showAll ? `Ver top ${TOP}` : `Ver los ${ordered.length}`;
-
-    list.update(showAll || ordered.length <= TOP ? ordered : ordered.slice(0, TOP), {
-      baseline: base,
-    });
-  }
-
-  draw();
-  axis(sect.body, '0%', '100% tasa de conversión');
-}
-
-// --- 2. Conversion over time ------------------------------------------------
+// --- 1. Conversion over time ------------------------------------------------
 
 function timelineSection(parent, payload) {
   const rows = payload.close_rate_by_month;
@@ -522,7 +362,7 @@ function timelineSection(parent, payload) {
   return chart.destroy;
 }
 
-// --- 3. Close rate, seven ways ----------------------------------------------
+// --- 2. Close rate, seven ways ----------------------------------------------
 
 function closeRateSection(parent, payload) {
   const sect = section(parent, {
@@ -593,7 +433,7 @@ function closeRateSection(parent, payload) {
   draw();
 }
 
-// --- 4. Needs complexity (ordinal, no selector) -----------------------------
+// --- 3. Needs complexity (ordinal, no selector) -----------------------------
 
 function complexitySection(parent, payload) {
   const rows = payload.close_rate_by_needs_complexity;
@@ -615,7 +455,7 @@ function complexitySection(parent, payload) {
   axis(sect.body, '0%', '100% tasa de conversión');
 }
 
-// --- 5. Needs: demand and conversion ----------------------------------------
+// --- 4. Needs: demand and conversion ----------------------------------------
 // Same categories, two measures. "How often is this asked for" and "does asking
 // for it predict a close" are both questions about the needs list, so they share
 // a section and a measure toggle rather than duplicating fifteen labels twice
@@ -640,7 +480,7 @@ function demandSection(parent, payload) {
   });
 }
 
-// --- 6 & 7. The two channel charts ------------------------------------------
+// --- 5 & 6. The two channel charts ------------------------------------------
 // Kept as separate sections on purpose. "Discovery channel" is the marketing
 // touchpoint that brought the client in; "current channel" is the support
 // channel they already operate. The shared word is the only thing they share,
@@ -766,7 +606,7 @@ function measureSection(parent, payload, config) {
   draw();
 }
 
-// --- 8. Needs matrix --------------------------------------------------------
+// --- 7. Needs matrix --------------------------------------------------------
 
 function matrixSection(parent, payload) {
   const sect = section(parent, {
@@ -817,7 +657,7 @@ function matrixSection(parent, payload) {
   draw();
 }
 
-// --- 9. Rep performance, cut by segment -------------------------------------
+// --- 8. Rep performance, cut by segment -------------------------------------
 // Two views of one team, on the same axis:
 //
 //   "Todos"     — every rep against the house average; click one to drill into

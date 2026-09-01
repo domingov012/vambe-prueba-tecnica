@@ -1,7 +1,11 @@
+import logging
+
 import httpx
 
 from app.config import get_settings
 from app.llm.providers.base import LLMError, RateLimiter, post_with_retries
+
+logger = logging.getLogger(__name__)
 
 _http: httpx.AsyncClient | None = None
 _rate_limiter: RateLimiter | None = None
@@ -62,11 +66,47 @@ async def chat_completion(messages: list[dict[str, str]]) -> str:
 
     response = await post_with_retries(_http, path, payload, _rate_limiter, "Google API")
 
-    body = response.json()
     try:
-        parts = body["candidates"][0]["content"]["parts"]
-    except (KeyError, IndexError) as exc:
-        raise LLMError(f"Google API returned no candidate content: {body}") from exc
+        body = response.json()
+    except ValueError as exc:
+        raise LLMError(
+            f"Google API returned a 200 that is not JSON: {response.text[:500]!r}",
+            kind="bad_response",
+        ) from exc
+
+    # A safety filter or a prompt-level block answers 200 with no candidates at
+    # all; say so explicitly rather than surfacing a bare KeyError.
+    blocked = (body.get("promptFeedback") or {}).get("blockReason")
+    if blocked:
+        raise LLMError(f"Google API blocked the prompt: {blocked}", kind="bad_response")
+
+    try:
+        candidate = body["candidates"][0]
+        parts = candidate["content"]["parts"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise LLMError(
+            f"Google API returned no candidate content: {str(body)[:500]}",
+            kind="bad_response",
+        ) from exc
+
+    # `MAX_TOKENS` means the answer was cut mid-generation, so the JSON the
+    # caller is about to parse is truncated. Logging it here is what turns an
+    # otherwise inscrutable "response was not valid JSON" into an actionable
+    # "shrink LLM_BATCH_SIZE".
+    finish_reason = candidate.get("finishReason")
+    if finish_reason and finish_reason not in ("STOP", "FINISH_REASON_UNSPECIFIED"):
+        logger.warning(
+            "Google API finished with reason=%s — the response is probably incomplete "
+            "(if MAX_TOKENS, lower LLM_BATCH_SIZE)",
+            finish_reason,
+        )
+
     # Gemma 4 emits reasoning as parts flagged `"thought": true` — keep only
     # the answer text.
-    return "".join(p.get("text", "") for p in parts if not p.get("thought"))
+    text = "".join(p.get("text", "") for p in parts if not p.get("thought"))
+    if not text.strip():
+        raise LLMError(
+            f"Google API returned an empty completion (finishReason={finish_reason})",
+            kind="bad_response",
+        )
+    return text
