@@ -1,3 +1,4 @@
+import copy
 import json
 import logging
 from dataclasses import dataclass, field
@@ -5,7 +6,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from app.config import ThinkingLevel
+from app.config import ThinkingLevel, get_settings
 from app.llm.client import chat_completion
 from app.models.enhanced_transcript import TranscriptClassification
 
@@ -16,6 +17,61 @@ _SYSTEM_PROMPT = (Path(__file__).parent.parent / "prompts" / "system.md").read_t
 # How much of a malformed response to put in the log / the job row. Enough to
 # see whether the model emitted prose, a truncated object or a wrapper key.
 _PREVIEW_CHARS = 800
+
+
+def _inline_refs(schema: dict) -> dict:
+    """Return `schema` with every `$ref` into `$defs` replaced by the definition
+    itself and the `$defs` block dropped.
+
+    Pydantic emits `{"$ref": "#/$defs/BusinessModel"}` for every enum field, but
+    the Google `responseJsonSchema` validator does not resolve `$ref` — it 400s
+    with "reference to undefined schema". A fully self-contained schema is small
+    here (a dozen short string-enums) so inlining costs nothing.
+    """
+    defs = schema.get("$defs", {})
+
+    def resolve(node):
+        if isinstance(node, dict):
+            if "$ref" in node:
+                target = resolve(copy.deepcopy(defs[node["$ref"].split("/")[-1]]))
+                # Preserve any sibling keys the ref carried (e.g. a description).
+                target.update({k: resolve(v) for k, v in node.items() if k != "$ref"})
+                return target
+            return {k: resolve(v) for k, v in node.items() if k != "$defs"}
+        if isinstance(node, list):
+            return [resolve(item) for item in node]
+        return node
+
+    return resolve(schema)
+
+
+def _build_batch_schema() -> dict:
+    """JSON schema for one enrichment response — passed to the model as a
+    generation constraint (see `chat_completion(..., response_schema=...)`).
+
+    Shape: `{"results": [ <one classification object per transcript, tagged with
+    its id> ]}`. The array is wrapped in an object on purpose: given a bare
+    array-typed schema, Gemma stops after one or two elements (returning
+    `finishReason: STOP`, so it doesn't even read as truncation); wrapped, it
+    fills the array. `_parse_response` unwraps the single `results` key back to a
+    list, the same path it already uses for models that volunteer a wrapper.
+    """
+    item = _inline_refs(TranscriptClassification.model_json_schema())
+    item.pop("title", None)
+    item.pop("description", None)
+    item["properties"] = {"id": {"type": "integer"}, **item["properties"]}
+    item["required"] = ["id", *item["required"]]
+    # Stop the model from echoing the input `transcript` field back at us.
+    item["additionalProperties"] = False
+    return {
+        "type": "object",
+        "properties": {"results": {"type": "array", "items": item}},
+        "required": ["results"],
+        "additionalProperties": False,
+    }
+
+
+_BATCH_SCHEMA = _build_batch_schema()
 
 
 @dataclass
@@ -52,6 +108,13 @@ async def enrich_batch(
 
     Provider-level failures (`LLMError`) propagate — the caller's stall
     tolerance owns those.
+
+    When `LLM_STRUCTURED_OUTPUT` is on (default), the response is constrained to
+    `_BATCH_SCHEMA`, so the parsing below is a safety net rather than the first
+    line of defence: the model can no longer misname a field, invent an enum
+    value, or wrap the array in prose. Per-item validation still runs — the
+    schema does not guarantee semantic rules like "no `unclear` alongside a real
+    channel" — and truncation (MAX_TOKENS) is still possible on a large batch.
     """
     if not items:
         return BatchOutcome()
@@ -65,7 +128,10 @@ async def enrich_batch(
         {"role": "user", "content": user_content},
     ]
 
-    raw = await chat_completion(messages, thinking_level=thinking_level)
+    schema = _BATCH_SCHEMA if get_settings().llm_structured_output else None
+    raw = await chat_completion(
+        messages, thinking_level=thinking_level, response_schema=schema
+    )
     logger.debug("Raw enrichment response (%d chars): %s", len(raw), raw)
 
     parsed, failure = _parse_response(raw)
@@ -161,12 +227,14 @@ def _parse_response(raw: str) -> tuple[list, BatchOutcome | None]:
         )
         return [], BatchOutcome(error=message, error_kind="invalid_json")
 
-    # Models routinely wrap the array in a single-key object
-    # (`{"results": [...]}`); unwrap that rather than throwing the batch away.
+    # The structured-output schema wraps the array as `{"results": [...]}`, and
+    # models without the schema routinely volunteer their own single-key wrapper
+    # anyway. Either way, unwrap it rather than throwing the batch away.
     if isinstance(parsed, dict):
         lists = [value for value in parsed.values() if isinstance(value, list)]
         if len(lists) == 1:
-            logger.info("Unwrapped enrichment array from a single-key JSON object")
+            if list(parsed) != ["results"]:  # the schema's own key is unremarkable
+                logger.info("Unwrapped enrichment array from a single-key JSON object")
             parsed = lists[0]
 
     if not isinstance(parsed, list):
@@ -199,9 +267,15 @@ def _preview(text: str) -> str:
 
 
 def _strip_code_fence(text: str) -> str:
+    """Strip a markdown code fence around the JSON.
+
+    The two ends are handled independently: even in JSON mode / under a response
+    schema, Gemma sometimes emits a bare closing ``` with no opening fence, so
+    stripping the tail can't be conditional on having seen the head.
+    """
     text = text.strip()
     if text.startswith("```"):
         text = text.split("\n", 1)[1] if "\n" in text else ""
-        if text.endswith("```"):
-            text = text.rsplit("```", 1)[0]
+    if text.rstrip().endswith("```"):
+        text = text.rstrip()[:-3]
     return text.strip()

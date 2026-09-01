@@ -40,6 +40,13 @@ class Settings(BaseSettings):
     # thinkingConfig at all, leaving the model on its own default.
     llm_thinking_level: ThinkingLevel | None = None
 
+    # Constrain the enrichment response to the classification JSON schema
+    # (Google: `responseJsonSchema`; OpenRouter: `response_format`). This makes
+    # the model emit schema-valid JSON — right field names, enum-only values, no
+    # code fence — instead of us parsing free text and dropping what doesn't
+    # validate. Escape hatch: set false if a provider/model rejects the schema.
+    llm_structured_output: bool = True
+
     llm_requests_per_minute: int = 20
     llm_max_retries: int = 5
     llm_batch_size: int = 10

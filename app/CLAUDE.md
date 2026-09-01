@@ -89,10 +89,11 @@ the commit window. Needs a replica set (Atlas is one); a standalone `mongod` can
 
 ## LLM calling
 
-- Two providers, selected by `LLM_PROVIDER` (`openrouter` default, or `google` for the Google Developer API — Gemini/Gemma direct). Same `chat_completion(messages, *, thinking_level=None) -> str` contract either way; callers don't branch on provider.
+- Two providers, selected by `LLM_PROVIDER` (`openrouter` default, or `google` for the Google Developer API — Gemini/Gemma direct). Same `chat_completion(messages, *, thinking_level=None, response_schema=None) -> str` contract either way; callers don't branch on provider.
   - `openrouter`: `OPENROUTER_MODEL` (default `google/gemma-4-31b-it:free`), `OPENROUTER_API_KEY`.
   - `google`: `GOOGLE_MODEL` (default `gemma-4-31b-it`), `GOOGLE_API_KEY`. Switch here when OpenRouter's shared free pool throttles too hard. Gemma on the Google API takes no `system` role, so `providers/google.py` folds system text into the first user turn; it also drops `"thought": true` reasoning parts, returning only the answer text.
 - **`thinking_level`** (`minimal` / `low` / `high`, a `ThinkingLevel` in `config.py`) sets how much the model reasons before answering. Default `LLM_THINKING_LEVEL` (unset ⇒ no `thinkingConfig` sent), overridable per job via `?thinking_level=` on `POST /api/ingestion/csv`; it's stored on `EnrichmentJob` and threaded job → `enrich_batch` → `chat_completion`. Google sends it verbatim as `generationConfig.thinkingConfig.thinkingLevel`; OpenRouter maps it (`minimal` ⇒ `reasoning.enabled=false`, else `reasoning.effort`).
+- **Structured output** (`LLM_STRUCTURED_OUTPUT`, on by default). `enrich_batch` builds `_BATCH_SCHEMA` from `TranscriptClassification` (`$ref`s inlined — the Google validator won't resolve them) and passes it as `response_schema`. Google → `generationConfig.responseJsonSchema` + `responseMimeType: application/json`; OpenRouter → `response_format: json_schema`. The schema is `{"results": [ …one object per transcript… ]}` **wrapped in an object on purpose**: given a bare array schema, Gemma stops after one or two elements with `finishReason: STOP` (reads as a complete response, not a truncation); wrapped, it fills the array. `_parse_response` unwraps the single `results` key. This is a strong constraint on gemma-4 (right field names, enum-only values, no code fence) but not hard constrained decoding — per-item Pydantic validation and the truncation check still run. Flip the flag off if a model rejects the schema.
 - Each provider rate-limits (`LLM_REQUESTS_PER_MINUTE`, 20/min default) and, via the shared
   `base.post_with_retries`, retries **429, 5xx *and* transport errors** (read timeout, dropped
   connection) with backoff up to `LLM_MAX_RETRIES`, then raises `LLMError`. A **non-429 4xx** raises
@@ -121,8 +122,10 @@ the commit window. Needs a replica set (Atlas is one); a standalone `mongod` can
   "the model wrote prose", "the JSON was truncated" and "every item failed validation" reach the job
   as distinct reasons instead of an indistinguishable empty list. A truncated response (opened a
   container, never closed it) is reported as such, because its fix is a smaller `LLM_BATCH_SIZE`.
-  A single-key object wrapping the array (`{"results": [...]}`) is unwrapped rather than discarded.
-  Per-item validation errors skip that item only.
+  A single-key object wrapping the array (`{"results": [...]}` — the structured-output schema's own
+  shape, or a wrapper a schemaless model volunteered) is unwrapped rather than discarded.
+  `_strip_code_fence` strips a leading and a trailing ``` independently — in JSON mode Gemma still
+  sometimes appends a bare closing fence. Per-item validation errors skip that item only.
 
 ## Observability
 

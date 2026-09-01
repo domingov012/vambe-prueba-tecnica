@@ -47,6 +47,13 @@ async def close_llm_client() -> None:
 
 
 async def chat_completion(
-    messages: list[dict[str, str]], *, thinking_level: ThinkingLevel | None = None
+    messages: list[dict[str, str]],
+    *,
+    thinking_level: ThinkingLevel | None = None,
+    response_schema: dict | None = None,
 ) -> str:
-    return await _provider().chat_completion(messages, thinking_level=thinking_level)
+    """`response_schema`, when given, is a JSON schema the completion is
+    constrained to (Google `responseJsonSchema` / OpenRouter `response_format`)."""
+    return await _provider().chat_completion(
+        messages, thinking_level=thinking_level, response_schema=response_schema
+    )

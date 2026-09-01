@@ -38,22 +38,22 @@ La app esta live en [render](https://vambe-insights.onrender.com/#/dashboard).
 ## Supuestos:
 Para el desarrollo del proyecto se hicieron los siguientes supuestos:
 
-1. Una reunión es identificada por `Nombre, Phone, Email, Fecha`. No existen reuniones distintas con esa misma llave.
+1. Una reunión es identificada por `Nombre, Phone, Email, Fecha`. No existen reuniones distintas con esa misma llave. Se le refiere como `enrichment_key`. 
 2. Gemma 4 es suficiente para la categorización de transcripciones. Un modelo mejor tal vez haría un mejor trabajo, pero estamos "bounded" por modelos gratuitos. 
 
-## Arquitectura
+## Arquitectura y Decisiones Clave
 
 ![Diagrama de arquitectura](images/architecture_diagram.png)
 
-El backend es un monolito FastAPI con subpaquetes de una sola responsabilidad
+El backend es un monolito FastAPI con "sub-servicios" de una sola responsabilidad
 (`ingestion`, `llm`, `aggregation`, `db`, `api`) que se componen mediante
-llamadas de función. Las cuatro decisiones que definen la forma del sistema:
+llamadas de función. Las cuatro decisiones clave que definen la forma del sistema:
 
-### 1. La subida del CSV no persiste nada, y tiene un tope de N transcripciones
+### 1. Ingesta de CSV con tope de N transcripciones
 
 `POST /api/ingestion/csv` parsea y valida el archivo completo en memoria (una
 fila mala → 422) y encola las filas. **No escribe en la base de datos.** Toda la
-persistencia ocurre dentro del worker, después de que el LLM haya clasificado.
+persistencia ocurre dentro del worker de manera asíncrona, después de que el LLM haya clasificado.
 
 Antes de llamar al modelo, el job en `app/llm/jobs.py`:
 
@@ -64,23 +64,19 @@ Antes de llamar al modelo, el job en `app/llm/jobs.py`:
 3. **aplica el tope `max_transcripts`** (`LLM_MAX_TRANSCRIPTS_PER_JOB`, 100 por
    defecto, override por query param).
 
-El tope existe porque la restricción real del tier gratuito es el **número de
-requests**, no los tokens: las transcripciones promedian ~130 tokens, pero cada
-batch es una request y el rate limit se agota mucho antes que el contexto. El
-tope acota el costo y la duración de un job a algo predecible en vez de dejar
-que un CSV de 10k filas defina el tiempo de ejecución.
+Esto permite subir el mismo archivo del enunciado (`vambe_clients_10k.csv`) varias veces, y sólo se procesarán las `N` filas del tope que **no han sido procesadas aún**. El `enritchment_key` evita procesamiento duplicado. 
 
-Consecuencia útil del orden (dedup → tope → LLM): **volver a subir el mismo CSV
-reanuda el trabajo**. El paso 2 salta todo lo que ya aterrizó, así que subir el
-archivo tres veces con tope 100 procesa 300 transcripciones distintas.
+El tope también existe por la restricción del tier gratuito de los LLM providers. Openrouter y google recurren a rate limiting, ya sea de tokens o requests por día.
 
 ### 2. Cola asíncrona para que la I/O del LLM no bloquee las requests
 
-La app se probó usando `gemma-4-31b-it` a través de Google AI Studio. El modelo resultó muy lento en procesar varias transcripciones en un prompt, por lo que se hacen "batches" de 10, y se encolan para que se procesen de manera **asíncrona**:
+La app se probó usando `gemma-4-31b-it` a través de Google AI Studio y OpenRouter. El modelo resultó muy lento en procesar varias transcripciones en un prompt, por lo que se hacen "batches" de 10, y se encolan para que se procesen de manera **asíncrona**:
 
 El ingestion service encola las filas en un `asyncio.Queue` y
 devuelve `201` con un `enrichment_job_id`. Un worker consume la
 cola en background; el frontend consulta `GET /api/jobs` para ver el progreso.
+
+> La elección de `asyncio.Queue` es por simplicidad. Este sistema no va a recibir csv uploads frecuentemente, y esta opción cumple la funcionalidad de asincronía. En una situación donde se requiera mayor escalabilidad, se usaría un servicio externo como Redis, RabbitMQ o SQS. 
 
 Las llamadas a la API de Google AI Studio son lentas, y se configuró un `LLM_REQUEST_TIMEOUT_SECONDS=300` para detener una llamada muy lenta. 
 
@@ -89,13 +85,15 @@ Las llamadas a la API de Google AI Studio son lentas, y se configuró un `LLM_RE
 Por cada batch, para las transcripciones que el modelo efectivamente devolvió,
 se escriben `Client` (get-or-create), `MeetingTranscript` y
 `EnhancedTranscript` juntos en **una sola transacción de MongoDB**
-(`_persist_classified`): aterrizan los tres o ninguno.
+(`_persist_classified`): aterrizan los tres o ninguno. Evita el registro de un Transcript sin su objeto procesado (`EnhancedTranscript`). 
 
 ### 4. Datos pre-calculados:
 
-`GET /api/dashboard/insights` devuelve **todos los datasets de gráficos para el dashboard en un solo payload cacheado** (`DashboardInsights`, `_id="latest"`). Se recalcula al final de cada job de procesamiento y, manualmente, vía `POST /api/dashboard/insights/recompute`. 
+Al final de cada job de "enhancement", se re-calculan todas las métricas utilizadas en el dashboard. Se puede actualizar manualmente, vía `POST /api/dashboard/insights/recompute`. 
 
-Como el dash no incluye filtros dinámicos y los CSV uploads son poco frecuentes, esto evita re-calcular la misma data en cada request y el dashboard nunca espera por un cálculo. 
+Esto funciona ya que las dimensiones definidas están pensadas para un análisis fijo de las tasas de conversión, con ciertos filtros. Como el dash no incluye filtros dinámicos y los CSV uploads son poco frecuentes, esto evita re-calcular la misma data en cada request y el dashboard nunca espera por un cálculo. 
+
+`GET /api/dashboard/insights` devuelve **todos los datasets de gráficos para el dashboard en un solo payload cacheado** (`DashboardInsights`, `_id="latest"`). 
 
 ## Dimensiones de las transcripciones
 

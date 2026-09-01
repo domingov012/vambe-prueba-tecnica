@@ -55,7 +55,10 @@ def _to_contents(messages: list[dict[str, str]]) -> list[dict]:
 
 
 async def chat_completion(
-    messages: list[dict[str, str]], *, thinking_level: ThinkingLevel | None = None
+    messages: list[dict[str, str]],
+    *,
+    thinking_level: ThinkingLevel | None = None,
+    response_schema: dict | None = None,
 ) -> str:
     """Send a generateContent request to the Google Developer API (Gemini/Gemma),
     retrying on rate limits/server errors — same contract as the OpenRouter caller."""
@@ -64,10 +67,19 @@ async def chat_completion(
 
     settings = get_settings()
     payload: dict = {"contents": _to_contents(messages)}
+    generation_config: dict = {}
     if thinking_level is not None:
-        payload["generationConfig"] = {
-            "thinkingConfig": {"thinkingLevel": thinking_level.value}
-        }
+        generation_config["thinkingConfig"] = {"thinkingLevel": thinking_level.value}
+    if response_schema is not None:
+        # `responseJsonSchema` takes a standard JSON schema (unlike the older
+        # `responseSchema`, an OpenAPI subset that rejects `additionalProperties`
+        # and does not resolve `$ref`). On Gemini it's enforced by constrained
+        # decoding; on gemma-4 it's a strong bias (valid field names + enum
+        # values, no prose) but not a hard guarantee — hence the parser stays.
+        generation_config["responseMimeType"] = "application/json"
+        generation_config["responseJsonSchema"] = response_schema
+    if generation_config:
+        payload["generationConfig"] = generation_config
     path = f"/models/{settings.google_model}:generateContent"
 
     response = await post_with_retries(_http, path, payload, _rate_limiter, "Google API")

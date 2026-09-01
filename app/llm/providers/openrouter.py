@@ -30,7 +30,10 @@ async def close() -> None:
 
 
 async def chat_completion(
-    messages: list[dict[str, str]], *, thinking_level: ThinkingLevel | None = None
+    messages: list[dict[str, str]],
+    *,
+    thinking_level: ThinkingLevel | None = None,
+    response_schema: dict | None = None,
 ) -> str:
     """Send a chat completion request to OpenRouter, retrying on rate limits/server errors."""
     if _http is None or _rate_limiter is None:
@@ -38,6 +41,18 @@ async def chat_completion(
 
     settings = get_settings()
     payload: dict = {"model": settings.openrouter_model, "messages": messages}
+    if response_schema is not None:
+        # OpenAI-compatible structured outputs. Models/providers that don't
+        # support it ignore the field (rarely, a 400 — flip LLM_STRUCTURED_OUTPUT
+        # off for those). `response_schema` is already an object at the root.
+        payload["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "transcript_classifications",
+                "strict": True,
+                "schema": response_schema,
+            },
+        }
     if thinking_level is not None:
         # OpenRouter has no `thinkingLevel`; map onto its `reasoning` knob —
         # `minimal` turns reasoning off, `low`/`high` become `effort`. Ignored by

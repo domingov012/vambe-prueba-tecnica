@@ -48,7 +48,7 @@ export function renderUploadPage(mount) {
           </select>
         </label>
         <label class="field">
-          <span class="field__label">Tamaño de lote</span>
+          <span class="field__label">Tamaño de batch</span>
           <input class="field__control" id="opt-batch" type="number" min="1" step="1"
                  inputmode="numeric" placeholder="10" />
         </label>
@@ -129,7 +129,7 @@ export function renderUploadPage(mount) {
   function readOptions() {
     const opts = { thinkingLevel: thinkingSelect.value || undefined };
     for (const [input, key, label] of [
-      [batchInput, 'batchSize', 'tamaño de lote'],
+      [batchInput, 'batchSize', 'tamaño de batch'],
       [maxInput, 'maxTranscripts', 'máx. transcripciones'],
     ]) {
       const raw = input.value.trim();
@@ -231,7 +231,7 @@ export function renderUploadPage(mount) {
           ? `<div class="hint" style="color:var(--flare)">${escapeHtml(message)}</div>`
           : '';
         const paramNotes = [
-          `lote ${(j.batch_size ?? 0).toLocaleString(LOCALE)}`,
+          `batch ${(j.batch_size ?? 0).toLocaleString(LOCALE)}`,
           `máx ${(j.max_transcripts ?? 0).toLocaleString(LOCALE)}`,
         ];
         if (j.thinking_level) {
