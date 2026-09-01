@@ -2,7 +2,7 @@
 
 Aplicación FastAPI + MongoDB que ingiere transcripciones de reuniones con
 clientes desde un CSV, las enriquece con un LLM y expone un dashboard de
-insights sobre los resultados.
+insights sobre los resultados, enfocados en la **tasa de conversión de clientes**.
 
 ## Localmente
 
@@ -94,6 +94,8 @@ Al final de cada job de "enhancement", se re-calculan todas las métricas utiliz
 Esto funciona ya que las dimensiones definidas están pensadas para un análisis fijo de las tasas de conversión, con ciertos filtros. Como el dash no incluye filtros dinámicos y los CSV uploads son poco frecuentes, esto evita re-calcular la misma data en cada request y el dashboard nunca espera por un cálculo. 
 
 `GET /api/dashboard/insights` devuelve **todos los datasets de gráficos para el dashboard en un solo payload cacheado** (`DashboardInsights`, `_id="latest"`). 
+
+El último gráfico del dash ("cruce de clientes") no es pre-calculado, dado que son varias combinaciones posibles, que el usuario escoge en el momento. Tiene un propósito exploratorio. 
 
 ## Dimensiones de las transcripciones
 

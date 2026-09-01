@@ -33,7 +33,9 @@ frontend/
     │   ├── segmented.js     # tablist selector used by every dashboard section
     │   ├── dropdown.js      # native <select>, for the one selector too long to be a tab strip
     │   ├── timeSeries.js    # SVG line chart for the monthly trend (team + one rep)
-    │   └── heatmap.js       # HTML cross-tab heatmap (sector×need, size×need)
+    │   └── heatmap.js       # HTML cross-tab heatmap. Two colour scales: 'count' (mint alpha ramp —
+    │                        #   sector×need, size×need) and 'closeRate' (diverging around the house
+    │                        #   average, binned — the custom client matrix only)
     └── pages/
         ├── upload.js        # Data Upload page
         ├── dashboard.js     # Dashboard page (wired to /api/dashboard/insights)
@@ -116,19 +118,23 @@ frontend/
   streaming or many concurrent viewers.
 
 - **`src/api.js`** — `uploadCsv(file, opts)`, `listJobs()`, `getJob(id)`,
-  `getDashboardInsights()`. The only place that knows URL paths and response
-  shapes. `request()` attaches `err.status` so callers can tell a 404 (no data
-  computed yet) from a real failure. `uploadCsv`'s `opts`
+  `getDashboardInsights()`, `getCrosstab({ row, col }, { signal })`. The only
+  place that knows URL paths and response shapes. `request()` attaches
+  `err.status` so callers can tell a 404 (no data computed yet) from a real
+  failure, and rethrows an `AbortError` untouched so a cancelled `getCrosstab`
+  isn't mistaken for a network error. `uploadCsv`'s `opts`
   (`{ thinkingLevel, batchSize, maxTranscripts }`) become the endpoint's
   optional query params; the upload page collects them in the `.opts` grid and
   an empty control just omits the param (backend env default wins).
 
 - **Dashboard** (`src/pages/dashboard.js`) — one fetch of
-  `GET /api/dashboard/insights`, one loading state, **eight sections** rendered
-  from the precomputed payload (no per-chart fetching, no client-side
-  aggregation — see `aggregations.md`). The datasets collapse into eight
-  sections because several answer the same question along a different axis;
-  every selector below re-slices arrays **already in memory**, never refetches:
+  `GET /api/dashboard/insights`, one loading state, **nine sections**. Eight are
+  rendered from the precomputed payload (no per-chart fetching, no client-side
+  aggregation — see `aggregations.md`); the ninth (**Exploración de clientes**)
+  is the one exception and fetches `GET /api/dashboard/crosstab` on its own.
+  The precomputed datasets collapse into eight sections because several answer
+  the same question along a different axis; every selector below re-slices
+  arrays **already in memory**, never refetches:
 
   | Section | Datasets | Interaction |
   |---|---|---|
@@ -140,6 +146,7 @@ frontend/
   | Canales de descubrimiento | `discovery_channel_frequency` | static |
   | Canales de atención en uso | `current_channel_frequency` + `close_rate_by_current_channel` | measure toggle |
   | Necesidades por segmento | `sector_` + `size_needs_matrix` | two-way axis toggle |
+  | Exploración de clientes | `GET /api/dashboard/crosstab` (self-fetched) | two dimension dropdowns + frecuencia/conversión toggle |
 
   - **The two rep sections are adjacent on purpose** (trend, then standings).
     "How is each rep doing" and "how has that moved" are one question asked
@@ -227,6 +234,14 @@ frontend/
    - `GET  /api/dashboard/insights` — all chart datasets in one precomputed blob
      (`{ <20 dataset keys>, _meta, computed_at }`); 404 until an enrichment job
      has completed. Shape documented in `aggregations.md`.
+   - `GET  /api/dashboard/crosstab?row=&col=` — on-demand cross-tab of two client
+     dimensions (`business_model` | `inquiry_volume` | `sector` | `business_size`
+     | `client_needs`), which must differ. Returns
+     `{ row_dim, col_dim, row_values, col_values, cells: [{ row, col, total, closed, close_rate }], overlapping, _meta }`.
+     `overlapping` is true when `client_needs` is on an axis (cells double-count).
+     422 on a bad/duplicate dimension, 404 until a transcript is enriched. This
+     is the deliberate exception to the one-precomputed-blob rule — see
+     `aggregations.md`.
 
 ## Notes for future changes
 

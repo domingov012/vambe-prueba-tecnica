@@ -24,8 +24,11 @@ app/
 │   ├── providers/            # one module per backend (openrouter.py, google.py), same init()/close()/chat_completion() contract + shared base.py
 │   └── processors/           # transcript enrichment logic (prompt + parsing), isolated from the LLM client itself
 ├── aggregation/               # dashboard aggregation logic (precomputed insights payload)
-│   ├── rows.py                 # EnhancedTranscript -> flat TranscriptRow list (single-collection scan)
-│   └── insights.py             # 22 chart datasets, recompute_insights() upserts the cached blob
+│   ├── rows.py                 # EnhancedTranscript -> flat TranscriptRow list (single-collection scan);
+│   │                           #   process-caches the list, refreshed by every recompute
+│   ├── insights.py             # 22 chart datasets, recompute_insights() upserts the cached blob
+│   └── crosstab.py             # on-demand cross-tab of 2 client dimensions — the one view too
+│                               #   combinatorial to precompute; runs on the request path over the cache
 └── api/routes/                 # thin FastAPI routers — parse request, call a service/aggregator, return response
 ```
 
@@ -49,6 +52,12 @@ app/
   query-layer choice and when to revisit).
 - Three generic functions back most charts: `close_rate_by_dimension()` (single-select cuts),
   `close_rate_by_membership()` (multi-select cuts) and `needs_matrix()` (cross-tabs).
+- **`GET /api/dashboard/crosstab?row=&col=`** is the deliberate exception to "one precomputed blob".
+  Any 2 of 5 client dimensions (`sector`, `business_model`, `business_size`, `inquiry_volume`,
+  `client_needs`) × 2 measures is too many combinations to bake, so `crosstab.py` computes it live
+  over `rows.get_transcript_rows()` (the process-cached scan — no Mongo hit on an interactive pivot).
+  Each cell ships `total` + `closed` + `close_rate` so the client renders either measure without a
+  refetch. `client_needs` on an axis makes cells overlap → `overlapping: true` in the response.
 - **Partitioning vs. overlapping is the distinction to hold onto.** Single-select groups partition the
   population; multi-select ones (needs, channels-in-use) overlap, so their totals sum past `N` and no
   baseline can be recovered by summing them. Those datasets carry `lift` precomputed, and

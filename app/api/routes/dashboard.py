@@ -2,7 +2,9 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
+from app.aggregation.crosstab import available_dimensions, compute_crosstab
 from app.aggregation.insights import get_cached_insights, recompute_insights
+from app.aggregation.rows import get_transcript_rows
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -42,6 +44,30 @@ async def get_insights(request: Request, response: Response):
     response.headers["ETag"] = etag
     response.headers["Cache-Control"] = "no-cache"
     return {**doc.payload, "computed_at": _iso_z(doc.computed_at)}
+
+
+@router.get("/crosstab")
+async def crosstab(row: str, col: str) -> dict:
+    """Cross two client attributes on demand — the one dashboard view too
+    combinatorial to precompute (see `app/aggregation/crosstab.py`).
+
+    `row` / `col` are each one of `available_dimensions()` and must differ.
+    Reads the in-process row cache (refreshed after every enrichment job), so an
+    interactive pivot costs no Mongo scan. 404s until a transcript is enriched.
+    """
+    dims = available_dimensions()
+    if row not in dims or col not in dims:
+        raise HTTPException(status_code=422, detail=f"row/col must each be one of {dims}")
+    if row == col:
+        raise HTTPException(status_code=422, detail="row and col must be different dimensions")
+
+    rows = await get_transcript_rows()
+    if not rows:
+        raise HTTPException(
+            status_code=404,
+            detail="No enriched transcripts yet — process at least one transcript batch first.",
+        )
+    return compute_crosstab(rows, row, col)
 
 
 @router.post("/insights/recompute")

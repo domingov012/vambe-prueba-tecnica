@@ -10,6 +10,7 @@ async function request(path, options) {
   try {
     res = await fetch(BASE + path, options);
   } catch (err) {
+    if (err.name === 'AbortError') throw err; // caller cancelled — not a failure
     throw new Error(`Network error: ${err.message}`);
   }
 
@@ -66,4 +67,16 @@ export function getJob(id) {
 // least one enrichment job has completed and the blob has been built.
 export function getDashboardInsights() {
   return request('/dashboard/insights');
+}
+
+// GET a custom cross-tab of two client attributes (see aggregations.md — the one
+// view that isn't precomputed). `dims` is `{ row, col }`, each a dimension name
+// the backend allowlists (`business_model` | `inquiry_volume` | `sector` |
+// `business_size` | `client_needs`), and they must differ. Pass an
+// `AbortController` signal so a fast sequence of selector changes cancels the
+// stale request instead of racing it. Throws with `.status === 404` until a
+// transcript has been enriched.
+export function getCrosstab({ row, col }, { signal } = {}) {
+  const params = new URLSearchParams({ row, col });
+  return request(`/dashboard/crosstab?${params}`, { signal });
 }

@@ -85,9 +85,21 @@ class TranscriptRow:
     meeting_date: date | None
 
 
+# Process cache of the projected rows. They only change when an enrichment job
+# writes new `EnhancedTranscript`s, and that path always ends in
+# `recompute_insights()` → `load_transcript_rows()`, which refreshes this. The
+# custom-crosstab endpoint reads it through `get_transcript_rows()` so an
+# interactive pivot (any 2 of 5 dimensions × 2 measures — too many combinations
+# to precompute) never re-scans Mongo.
+_ROWS_CACHE: list[TranscriptRow] | None = None
+
+
 async def load_transcript_rows() -> list[TranscriptRow]:
+    """Scan the enhanced collection and rebuild the flat row list. Also refreshes
+    the process cache that `get_transcript_rows()` serves."""
+    global _ROWS_CACHE
     projected = await EnhancedTranscript.find_all().project(_EnhancedProjection).to_list()
-    return [
+    _ROWS_CACHE = [
         TranscriptRow(
             sector=p.sector.value,
             business_model=p.business_model.value,
@@ -104,3 +116,15 @@ async def load_transcript_rows() -> list[TranscriptRow]:
         )
         for p in projected
     ]
+    return _ROWS_CACHE
+
+
+async def get_transcript_rows() -> list[TranscriptRow]:
+    """Cached view of `load_transcript_rows()` for the request path. Falls back to
+    a live scan on a cold process (no enrichment job has completed this boot).
+
+    Callers must treat the list as read-only — it is the shared cached reference.
+    """
+    if _ROWS_CACHE is not None:
+        return _ROWS_CACHE
+    return await load_transcript_rows()

@@ -20,6 +20,8 @@
   --flare: #e0674f;        /* errors */
 
   --tide-rgb: 79, 191, 168;
+  --signal-rgb: 233, 180, 76;   /* above-average close rate in the client matrix */
+  --slate-rgb: 122, 150, 162;   /* below-average — cool + low-chroma, so mint stays 'frequency' */
 
   --display: "Archivo", system-ui, sans-serif;
   --body: "IBM Plex Sans", system-ui, sans-serif;
@@ -318,6 +320,28 @@ select.field__control option {
 .badge--done { background: rgba(var(--tide-rgb), 0.16); color: var(--tide); }
 .badge--queued { background: var(--pine-3); color: var(--moss); }
 .badge--failed { background: rgba(224, 103, 79, 0.16); color: var(--flare); }
+
+/* Spinner + badge, kept on one row. */
+.status-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+/* Shown beside the status badge while a job is queued/running. */
+.spinner {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid rgba(233, 180, 76, 0.25);
+  border-top-color: var(--signal);
+  animation: spinner-rotate 0.7s linear infinite;
+}
+
+@keyframes spinner-rotate {
+  to { transform: rotate(360deg); }
+}
 
 .progress {
   height: 4px;
@@ -964,6 +988,41 @@ select.field__control option {
   width: 96px;
   height: 6px;
   background: linear-gradient(90deg, rgba(var(--tide-rgb), 0.1), rgba(var(--tide-rgb), 1));
+}
+
+/* close-rate variant: diverging colour by distance from the house average */
+.heatmap--closeRate td {
+  min-width: 46px;
+  padding: 6px 7px;
+  line-height: 1.15;
+}
+
+.heat-cell__rate { display: block; font-size: 11px; }
+
+.heat-cell__n {
+  display: block;
+  font-size: 8.5px;
+  color: var(--moss-dim);
+  letter-spacing: 0.02em;
+}
+
+.heat-b0 { background: rgba(var(--slate-rgb), 0.82); }
+.heat-b1 { background: rgba(var(--slate-rgb), 0.38); }
+.heat-b2 { background: transparent; box-shadow: inset 0 0 0 1px var(--rule); }
+.heat-b3 { background: rgba(var(--signal-rgb), 0.34); }
+.heat-b4 { background: rgba(var(--signal-rgb), 0.68); }
+
+.heat-cell--thin { opacity: 0.4; }
+.heat-cell--void { background: transparent; }
+
+.heat-legend--diverging .heat-legend__swatch {
+  width: 18px;
+  height: 8px;
+  display: inline-block;
+}
+
+.heat-legend--diverging .heat-legend__swatch.heat-b2 {
+  box-shadow: inset 0 0 0 1px var(--rule);
 }
 
 /* ---- Notes / empty / skeleton ---- */

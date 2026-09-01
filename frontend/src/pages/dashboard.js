@@ -1,4 +1,4 @@
-import { getDashboardInsights } from '../api.js';
+import { getDashboardInsights, getCrosstab } from '../api.js';
 import { percent, count, humanize, relativeTime, isStale } from '../format.js';
 import { createProportionList, createCountList } from '../components/barList.js';
 import { createSegmented } from '../components/segmented.js';
@@ -34,6 +34,18 @@ const DIMENSIONS = [
   { value: 'urgency', label: 'Urgency', key: 'close_rate_by_urgency', order: URGENCY_ORDER },
   { value: 'discovery_channel', label: 'Discovery', key: 'close_rate_by_discovery_channel' },
   { value: 'regulatory_flag', label: 'Regulated', key: 'close_rate_by_regulatory_flag' },
+];
+
+// The custom cross-tab (§9). Only attributes that describe the *client* — so the
+// section reads as one subject, not a generic pivot tool. Mirrors the backend
+// allowlist in `app/aggregation/crosstab.py`; `client_needs` is the multi-select
+// one (overlapping cells).
+const CLIENT_DIMS = [
+  { value: 'business_model', label: 'Model' },
+  { value: 'inquiry_volume', label: 'Volume' },
+  { value: 'sector', label: 'Sector' },
+  { value: 'business_size', label: 'Size' },
+  { value: 'client_needs', label: 'Needs' },
 ];
 
 const MATRIX_VIEWS = {
@@ -134,8 +146,9 @@ export function renderDashboardPage(mount) {
       discoveryChannelSection,
       currentChannelSection,
       matrixSection,
+      clientMatrixSection,
     ]
-      .map((build) => build(sectionsEl, payload))
+      .map((build) => build(sectionsEl, payload, { sample }))
       .filter((value) => typeof value === 'function');
   }
 
@@ -655,6 +668,139 @@ function matrixSection(parent, payload) {
   }
 
   draw();
+}
+
+// --- 7b. Custom client cross-tab ------------------------------------------
+// The one section that fetches on its own. Any 2 of 5 client dimensions × 2
+// measures is more combinations than the precomputed blob should carry (see
+// aggregations.md), so this hits GET /api/dashboard/crosstab on every axis
+// change — with an AbortController so a fast run through the dropdowns cancels
+// the stale request. The measure toggle is client-side only: each cell ships
+// `total` and `close_rate`, so flipping it never refetches.
+
+function clientMatrixSection(parent, payload, { sample } = {}) {
+  const sect = section(parent, {
+    eyebrow: 'Exploración de clientes',
+    title: 'Cruce de atributos del cliente',
+    note: '',
+  });
+
+  // The rest of the dashboard runs offline against the synthetic payload; this
+  // section can't — there is no crosstab endpoint behind sample mode.
+  if (sample) {
+    emptyState(sect.body, 'Disponible solo con datos reales.');
+    return;
+  }
+
+  let rowDim = 'business_model';
+  let colDim = 'inquiry_volume';
+  let measure = 'count';
+  let controller = null;
+  let current = null; // last successful crosstab payload
+
+  const otherOf = (dim) => CLIENT_DIMS.find((d) => d.value !== dim).value;
+  const optionsExcluding = (dim) =>
+    CLIENT_DIMS.filter((d) => d.value !== dim).map((d) => ({ value: d.value, label: d.label }));
+
+  const rowPick = createDropdown({
+    label: 'Filas',
+    options: optionsExcluding(colDim),
+    value: rowDim,
+    onChange: (v) => {
+      rowDim = v;
+      if (colDim === rowDim) colDim = otherOf(rowDim);
+      syncOptions();
+      load();
+    },
+  });
+  const colPick = createDropdown({
+    label: 'Columnas',
+    options: optionsExcluding(rowDim),
+    value: colDim,
+    onChange: (v) => {
+      colDim = v;
+      if (rowDim === colDim) rowDim = otherOf(colDim);
+      syncOptions();
+      load();
+    },
+  });
+  const measureToggle = createSegmented(
+    [
+      { value: 'count', label: 'Frecuencia' },
+      { value: 'rate', label: 'Conversión' },
+    ],
+    { value: measure, onChange: (v) => { measure = v; draw(); } }
+  );
+  sect.controls.append(rowPick.el, colPick.el, measureToggle.el);
+
+  const host = document.createElement('div');
+  sect.body.appendChild(host);
+  const empty = emptySlot(sect.body);
+
+  function syncOptions() {
+    rowPick.setOptions(optionsExcluding(colDim), rowDim);
+    colPick.setOptions(optionsExcluding(rowDim), colDim);
+  }
+
+  async function load() {
+    if (controller) controller.abort();
+    controller = new AbortController();
+    host.innerHTML = '<span class="skeleton skeleton--rows"></span>';
+    empty.hide();
+    try {
+      current = await getCrosstab({ row: rowDim, col: colDim }, { signal: controller.signal });
+      draw();
+    } catch (err) {
+      if (err.name === 'AbortError') return; // superseded by a newer request
+      current = null;
+      host.innerHTML = '';
+      empty.show(
+        err.status === 404
+          ? 'Aún no hay datos calculados. Sube un CSV y espera al job de enriquecimiento.'
+          : `No se pudo cargar la matriz: ${err.message}`
+      );
+    }
+  }
+
+  function draw() {
+    if (!current) return;
+    const { cells, row_values, col_values, overlapping, _meta } = current;
+
+    if (!cells.length) {
+      host.innerHTML = '';
+      empty.show('Sin reuniones para esta combinación.');
+      return;
+    }
+    empty.hide();
+
+    const rate = measure === 'rate';
+    const overlapNote = overlapping
+      ? ' Una necesidad cuenta al cliente en cada celda que menciona, así que las filas no suman la población.'
+      : '';
+    sect.noteEl.textContent =
+      (rate
+        ? `Tasa de conversión por celda, coloreada según su distancia al promedio general (${percent(_meta.base_rate, 0)}). ` +
+          `Cada celda muestra su n; las de menos de ${_meta.min_sample} reuniones van atenuadas.`
+        : 'Reuniones por celda. La intensidad se calcula sobre el valor máximo de la vista.') + overlapNote;
+
+    renderHeatmap(host, cells, {
+      rowKey: 'row',
+      colKey: 'col',
+      rowOrder: row_values,
+      colValues: col_values,
+      valueKey: rate ? 'close_rate' : 'total',
+      colorScale: rate ? 'closeRate' : 'count',
+      baseRate: _meta.base_rate,
+      minSample: _meta.min_sample,
+      countNoun: 'reuniones',
+    });
+  }
+
+  load();
+
+  return () => {
+    if (controller) controller.abort();
+  };
 }
 
 // --- 8. Rep performance, cut by segment -------------------------------------

@@ -209,6 +209,9 @@ export function renderUploadPage(mount) {
         const done = (j.processed_count || 0) + (j.failed_count || 0);
         const pct = total ? Math.round((done / total) * 100) : 0;
         const badge = BADGE_CLASS[j.status] || 'queued';
+        const spinner = ACTIVE_STATUSES.includes(j.status)
+          ? '<span class="spinner" aria-hidden="true"></span>'
+          : '';
         // total_candidates is 0 until the worker has filtered + capped the file.
         const progressText = total
           ? `${done.toLocaleString(LOCALE)} / ${total.toLocaleString(LOCALE)} (${pct}%)`
@@ -247,7 +250,7 @@ export function renderUploadPage(mount) {
               <span class="hint">${progressText}${skippedNote}${failedNote}</span>
               ${errNote}
             </td>
-            <td><span class="badge badge--${badge}">${j.status}</span></td>
+            <td><span class="status-cell">${spinner}<span class="badge badge--${badge}">${j.status}</span></span></td>
             <td>${formatDate(j.created_at)}</td>
           </tr>
         `;
