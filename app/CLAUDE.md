@@ -89,9 +89,10 @@ the commit window. Needs a replica set (Atlas is one); a standalone `mongod` can
 
 ## LLM calling
 
-- Two providers, selected by `LLM_PROVIDER` (`openrouter` default, or `google` for the Google Developer API — Gemini/Gemma direct). Same `chat_completion(messages) -> str` contract either way; callers don't branch on provider.
+- Two providers, selected by `LLM_PROVIDER` (`openrouter` default, or `google` for the Google Developer API — Gemini/Gemma direct). Same `chat_completion(messages, *, thinking_level=None) -> str` contract either way; callers don't branch on provider.
   - `openrouter`: `OPENROUTER_MODEL` (default `google/gemma-4-31b-it:free`), `OPENROUTER_API_KEY`.
   - `google`: `GOOGLE_MODEL` (default `gemma-4-31b-it`), `GOOGLE_API_KEY`. Switch here when OpenRouter's shared free pool throttles too hard. Gemma on the Google API takes no `system` role, so `providers/google.py` folds system text into the first user turn; it also drops `"thought": true` reasoning parts, returning only the answer text.
+- **`thinking_level`** (`minimal` / `low` / `high`, a `ThinkingLevel` in `config.py`) sets how much the model reasons before answering. Default `LLM_THINKING_LEVEL` (unset ⇒ no `thinkingConfig` sent), overridable per job via `?thinking_level=` on `POST /api/ingestion/csv`; it's stored on `EnrichmentJob` and threaded job → `enrich_batch` → `chat_completion`. Google sends it verbatim as `generationConfig.thinkingConfig.thinkingLevel`; OpenRouter maps it (`minimal` ⇒ `reasoning.enabled=false`, else `reasoning.effort`).
 - Each provider rate-limits (`LLM_REQUESTS_PER_MINUTE`, 20/min default) and, via the shared
   `base.post_with_retries`, retries **429, 5xx *and* transport errors** (read timeout, dropped
   connection) with backoff up to `LLM_MAX_RETRIES`, then raises `LLMError`. A **non-429 4xx** raises

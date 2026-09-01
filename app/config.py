@@ -1,6 +1,23 @@
+from enum import Enum
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class ThinkingLevel(str, Enum):
+    """How much internal reasoning the model is asked to spend before answering.
+
+    Passed straight through to the Google API as
+    `generationConfig.thinkingConfig.thinkingLevel` (Gemini 3 / thinking-capable
+    Gemma). The OpenRouter provider maps it onto its own `reasoning` knob:
+    `minimal` disables reasoning, the rest become `reasoning.effort`. Values
+    match the Google API's documented set; anything the model doesn't support it
+    clamps to its own minimum.
+    """
+
+    minimal = "minimal"
+    low = "low"
+    high = "high"
 
 
 class Settings(BaseSettings):
@@ -17,6 +34,11 @@ class Settings(BaseSettings):
     google_api_key: str = ""
     google_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
     google_model: str = "gemma-4-31b-it"
+
+    # Default reasoning effort for enrichment calls; the CSV upload endpoint can
+    # override it per job (`thinking_level` query param). None sends no
+    # thinkingConfig at all, leaving the model on its own default.
+    llm_thinking_level: ThinkingLevel | None = None
 
     llm_requests_per_minute: int = 20
     llm_max_retries: int = 5

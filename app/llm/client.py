@@ -6,7 +6,7 @@ provider selected by `LLM_PROVIDER` (see `app/config.py`). Every provider in
 (`llm/processors/*`, `llm/jobs.py`) never need to know which one is active.
 """
 
-from app.config import get_settings
+from app.config import ThinkingLevel, get_settings
 from app.llm.providers import google, openrouter
 from app.llm.providers.base import LLMError, LLMFatalError
 
@@ -46,5 +46,7 @@ async def close_llm_client() -> None:
     await _provider().close()
 
 
-async def chat_completion(messages: list[dict[str, str]]) -> str:
-    return await _provider().chat_completion(messages)
+async def chat_completion(
+    messages: list[dict[str, str]], *, thinking_level: ThinkingLevel | None = None
+) -> str:
+    return await _provider().chat_completion(messages, thinking_level=thinking_level)

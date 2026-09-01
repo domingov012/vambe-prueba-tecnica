@@ -16,6 +16,12 @@ const BADGE_CLASS = {
   failed: 'failed',
 };
 
+// Backend ThinkingLevel enum -> Spanish label for the jobs table.
+const THINKING_LABELS = {
+  minimal: 'razonamiento mínimo',
+  high: 'razonamiento alto',
+};
+
 export function renderUploadPage(mount) {
   const page = document.createElement('div');
   page.className = 'page';
@@ -31,6 +37,29 @@ export function renderUploadPage(mount) {
         <input type="file" id="file-input" accept=".csv,text/csv" hidden />
       </div>
       <div id="file-info"></div>
+
+      <div class="opts">
+        <label class="field">
+          <span class="field__label">Nivel de razonamiento</span>
+          <select class="field__control" id="opt-thinking">
+            <option value="">Por defecto del servidor</option>
+            <option value="minimal">Mínimo</option>
+            <option value="high">Alto</option>
+          </select>
+        </label>
+        <label class="field">
+          <span class="field__label">Tamaño de lote</span>
+          <input class="field__control" id="opt-batch" type="number" min="1" step="1"
+                 inputmode="numeric" placeholder="10" />
+        </label>
+        <label class="field">
+          <span class="field__label">Máx. transcripciones</span>
+          <input class="field__control" id="opt-max" type="number" min="1" step="1"
+                 inputmode="numeric" placeholder="100" />
+        </label>
+      </div>
+      <p class="hint">Deja un campo vacío para usar el valor por defecto del servidor.</p>
+
       <div id="upload-result"></div>
       <div style="margin-top:16px; display:flex; gap:10px;">
         <button class="btn" id="start-btn" disabled>Iniciar enriquecimiento</button>
@@ -42,7 +71,7 @@ export function renderUploadPage(mount) {
       <h2 class="card__title">Jobs de enriquecimiento</h2>
       <table class="table">
         <thead>
-          <tr><th>Job</th><th>Archivo</th><th>Progreso</th><th>Estado</th><th>Inicio</th></tr>
+          <tr><th>Job</th><th>Archivo</th><th>Parámetros</th><th>Progreso</th><th>Estado</th><th>Inicio</th></tr>
         </thead>
         <tbody id="jobs-body"></tbody>
       </table>
@@ -57,6 +86,10 @@ export function renderUploadPage(mount) {
   const uploadResult = page.querySelector('#upload-result');
   const startBtn = page.querySelector('#start-btn');
   const clearBtn = page.querySelector('#clear-btn');
+  const thinkingSelect = page.querySelector('#opt-thinking');
+  const batchInput = page.querySelector('#opt-batch');
+  const maxInput = page.querySelector('#opt-max');
+  const optControls = [thinkingSelect, batchInput, maxInput];
   const jobsBody = page.querySelector('#jobs-body');
   const jobsNote = page.querySelector('#jobs-note');
 
@@ -84,7 +117,31 @@ export function renderUploadPage(mount) {
   function syncButtons() {
     startBtn.disabled = uploading || !selectedFile;
     clearBtn.disabled = uploading || !selectedFile;
+    optControls.forEach((el) => {
+      el.disabled = uploading;
+    });
     startBtn.textContent = uploading ? 'Subiendo…' : 'Iniciar enriquecimiento';
+  }
+
+  // Read the three job-option controls. Returns null (and shows why) when a
+  // number field holds something that isn't a positive integer — the backend
+  // would 422 anyway, but catching it here keeps the message in Spanish.
+  function readOptions() {
+    const opts = { thinkingLevel: thinkingSelect.value || undefined };
+    for (const [input, key, label] of [
+      [batchInput, 'batchSize', 'tamaño de lote'],
+      [maxInput, 'maxTranscripts', 'máx. transcripciones'],
+    ]) {
+      const raw = input.value.trim();
+      if (!raw) continue;
+      const value = Number(raw);
+      if (!Number.isInteger(value) || value < 1) {
+        uploadResult.innerHTML = `<p class="hint" style="color:var(--flare)">El ${label} debe ser un entero mayor que 0.</p>`;
+        return null;
+      }
+      opts[key] = value;
+    }
+    return opts;
   }
 
   dropzone.addEventListener('click', () => fileInput.click());
@@ -113,12 +170,16 @@ export function renderUploadPage(mount) {
 
   startBtn.addEventListener('click', async () => {
     if (!selectedFile || uploading) return;
-    uploading = true;
+
     uploadResult.innerHTML = '';
+    const opts = readOptions();
+    if (opts === null) return; // validation message already shown
+
+    uploading = true;
     syncButtons();
 
     try {
-      const { summary } = await uploadCsv(selectedFile);
+      const { summary } = await uploadCsv(selectedFile, opts);
       uploadResult.innerHTML = `<p class="hint" style="color:var(--tide)">
         Se recibieron ${summary.rows_received.toLocaleString(LOCALE)} filas — job de
         enriquecimiento iniciado. Sigue el progreso abajo.</p>`;
@@ -169,10 +230,18 @@ export function renderUploadPage(mount) {
         const errNote = message
           ? `<div class="hint" style="color:var(--flare)">${escapeHtml(message)}</div>`
           : '';
+        const paramNotes = [
+          `lote ${(j.batch_size ?? 0).toLocaleString(LOCALE)}`,
+          `máx ${(j.max_transcripts ?? 0).toLocaleString(LOCALE)}`,
+        ];
+        if (j.thinking_level) {
+          paramNotes.push(THINKING_LABELS[j.thinking_level] || j.thinking_level);
+        }
         return `
           <tr>
             <td>${shortId(j._id || j.id)}</td>
             <td>${j.filename ? escapeHtml(j.filename) : '—'}</td>
+            <td><span class="hint">${paramNotes.join(' · ')}</span></td>
             <td>
               <div class="progress"><div class="progress__bar" style="width:${pct}%"></div></div>
               <span class="hint">${progressText}${skippedNote}${failedNote}</span>

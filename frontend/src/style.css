@@ -179,6 +179,75 @@ body {
   font-family: var(--mono);
 }
 
+/* ---- Upload job-option controls ---- */
+.opts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 18px;
+}
+
+@media (max-width: 560px) {
+  .opts {
+    grid-template-columns: 1fr;
+  }
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field__label {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--moss-dim);
+}
+
+.field__control {
+  appearance: none;
+  width: 100%;
+  background: var(--pine-2);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  color: var(--chalk);
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  padding: 8px 10px;
+  transition: border-color 0.15s;
+}
+
+.field__control:hover {
+  border-color: var(--moss-dim);
+}
+
+select.field__control {
+  cursor: pointer;
+  padding-right: 26px;
+  /* Chevron drawn in the box rather than loaded — matches .drop__select. */
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--moss) 50%),
+    linear-gradient(135deg, var(--moss) 50%, transparent 50%);
+  background-position: right 13px center, right 8px center;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
+select.field__control option {
+  background: var(--pine-2);
+  color: var(--chalk);
+}
+
+.field__hint {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--moss-dim);
+}
+
 /* ---- Buttons ---- */
 .btn {
   background: var(--signal);

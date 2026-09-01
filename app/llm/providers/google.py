@@ -2,7 +2,7 @@ import logging
 
 import httpx
 
-from app.config import get_settings
+from app.config import ThinkingLevel, get_settings
 from app.llm.providers.base import LLMError, RateLimiter, post_with_retries
 
 logger = logging.getLogger(__name__)
@@ -54,14 +54,20 @@ def _to_contents(messages: list[dict[str, str]]) -> list[dict]:
     return contents
 
 
-async def chat_completion(messages: list[dict[str, str]]) -> str:
+async def chat_completion(
+    messages: list[dict[str, str]], *, thinking_level: ThinkingLevel | None = None
+) -> str:
     """Send a generateContent request to the Google Developer API (Gemini/Gemma),
     retrying on rate limits/server errors — same contract as the OpenRouter caller."""
     if _http is None or _rate_limiter is None:
         raise RuntimeError("LLM client not initialized — call init_llm_client() first")
 
     settings = get_settings()
-    payload = {"contents": _to_contents(messages)}
+    payload: dict = {"contents": _to_contents(messages)}
+    if thinking_level is not None:
+        payload["generationConfig"] = {
+            "thinkingConfig": {"thinkingLevel": thinking_level.value}
+        }
     path = f"/models/{settings.google_model}:generateContent"
 
     response = await post_with_retries(_http, path, payload, _rate_limiter, "Google API")
@@ -89,10 +95,6 @@ async def chat_completion(messages: list[dict[str, str]]) -> str:
             kind="bad_response",
         ) from exc
 
-    # `MAX_TOKENS` means the answer was cut mid-generation, so the JSON the
-    # caller is about to parse is truncated. Logging it here is what turns an
-    # otherwise inscrutable "response was not valid JSON" into an actionable
-    # "shrink LLM_BATCH_SIZE".
     finish_reason = candidate.get("finishReason")
     if finish_reason and finish_reason not in ("STOP", "FINISH_REASON_UNSPECIFIED"):
         logger.warning(

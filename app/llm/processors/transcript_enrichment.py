@@ -5,6 +5,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+from app.config import ThinkingLevel
 from app.llm.client import chat_completion
 from app.models.enhanced_transcript import TranscriptClassification
 
@@ -38,7 +39,9 @@ class BatchOutcome:
     missing_count: int = 0
 
 
-async def enrich_batch(items: list[tuple[str, str]]) -> BatchOutcome:
+async def enrich_batch(
+    items: list[tuple[str, str]], *, thinking_level: ThinkingLevel | None = None
+) -> BatchOutcome:
     """Classify a batch of transcripts in a single LLM call.
 
     `items` is a list of `(enrichment_key, transcript_text)`. Returns a
@@ -62,7 +65,7 @@ async def enrich_batch(items: list[tuple[str, str]]) -> BatchOutcome:
         {"role": "user", "content": user_content},
     ]
 
-    raw = await chat_completion(messages)
+    raw = await chat_completion(messages, thinking_level=thinking_level)
     logger.debug("Raw enrichment response (%d chars): %s", len(raw), raw)
 
     parsed, failure = _parse_response(raw)

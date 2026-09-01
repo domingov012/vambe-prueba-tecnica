@@ -4,6 +4,8 @@ from enum import Enum
 from beanie import Document
 from pydantic import Field
 
+from app.config import ThinkingLevel
+
 
 class JobStatus(str, Enum):
     queued = "queued"
@@ -17,6 +19,9 @@ class EnrichmentJob(Document):
     filename: str | None = None
     batch_size: int
     max_transcripts: int
+    # Reasoning effort requested for this job's LLM calls (CSV upload param, or
+    # the LLM_THINKING_LEVEL default). None = leave the model on its default.
+    thinking_level: ThinkingLevel | None = None
     rows_in_file: int = 0
     # Rows dropped before the LLM step because that (client, meeting) was already
     # enriched. Set when the job starts running.

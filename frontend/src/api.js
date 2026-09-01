@@ -32,10 +32,23 @@ async function request(path, options) {
 }
 
 // POST a CSV file for ingestion. Resolves to { summary, enrichment_job_id }.
-export function uploadCsv(file) {
+// `opts` maps to the endpoint's optional query params; omitted keys fall back to
+// the backend's env defaults (LLM_BATCH_SIZE / LLM_MAX_TRANSCRIPTS_PER_JOB /
+// LLM_THINKING_LEVEL). `thinkingLevel` is one of 'minimal' | 'low' | 'high'.
+export function uploadCsv(file, opts = {}) {
   const form = new FormData();
   form.append('file', file);
-  return request('/ingestion/csv', { method: 'POST', body: form });
+
+  const params = new URLSearchParams();
+  if (opts.batchSize) params.set('batch_size', opts.batchSize);
+  if (opts.maxTranscripts) params.set('max_transcripts', opts.maxTranscripts);
+  if (opts.thinkingLevel) params.set('thinking_level', opts.thinkingLevel);
+  const query = params.toString();
+
+  return request(`/ingestion/csv${query ? `?${query}` : ''}`, {
+    method: 'POST',
+    body: form,
+  });
 }
 
 // GET the list of enrichment jobs, newest first.

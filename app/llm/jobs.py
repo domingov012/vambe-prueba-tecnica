@@ -8,7 +8,7 @@ from beanie.operators import In
 from pydantic import BaseModel, Field
 
 from app.aggregation.insights import recompute_insights
-from app.config import get_settings
+from app.config import ThinkingLevel, get_settings
 from app.db.session import get_client
 from app.ingestion.mappers import ParsedRow
 from app.ingestion.service import get_or_create_clients, insert_meetings
@@ -114,6 +114,7 @@ async def enqueue_enrichment_job(
     batch_size: int | None = None,
     max_transcripts: int | None = None,
     filename: str | None = None,
+    thinking_level: ThinkingLevel | None = None,
 ) -> EnrichmentJob:
     """Queue a full CSV's worth of parsed rows. Filtering (drop already-enriched
     rows), the `max_transcripts` cap, the LLM calls and all persistence happen in
@@ -128,18 +129,21 @@ async def enqueue_enrichment_job(
     job = EnrichmentJob(
         batch_size=batch_size or settings.llm_batch_size,
         max_transcripts=max_transcripts or settings.llm_max_transcripts_per_job,
+        thinking_level=thinking_level or settings.llm_thinking_level,
         rows_in_file=len(rows),
         filename=filename,
     )
     await job.insert()
     await _queue.put((job.id, rows))
     logger.info(
-        "Queued enrichment job %s (file=%r, rows=%d, batch_size=%d, cap=%d, queue_depth=%d)",
+        "Queued enrichment job %s (file=%r, rows=%d, batch_size=%d, cap=%d, "
+        "thinking_level=%s, queue_depth=%d)",
         job.id,
         filename,
         len(rows),
         job.batch_size,
         job.max_transcripts,
+        job.thinking_level.value if job.thinking_level else None,
         _queue.qsize(),
     )
     return job
@@ -233,12 +237,13 @@ async def _run_job(job_id: PydanticObjectId, rows: list[ParsedRow]) -> None:
     job.updated_at = _utcnow()
     await job.save()
     logger.info(
-        "Job %s running: %d row(s) from %r, provider=%s, model=%s",
+        "Job %s running: %d row(s) from %r, provider=%s, model=%s, thinking_level=%s",
         job_id,
         len(rows),
         job.filename,
         settings.llm_provider,
         settings.google_model if settings.llm_provider == "google" else settings.openrouter_model,
+        job.thinking_level.value if job.thinking_level else None,
     )
 
     # Stage 1 — one EnhancedTranscript per (client, meeting): collapse rows that
@@ -296,7 +301,7 @@ async def _run_job(job_id: PydanticObjectId, rows: list[ParsedRow]) -> None:
         logger.info("%s: sending %d transcript(s) (%.0fs left on the job)", label, len(chunk), remaining)
         batch_started = time.monotonic()
         outcome = await _enrich_with_stall_tolerance(
-            [(k, r.transcript) for k, r in chunk], label, job_deadline
+            [(k, r.transcript) for k, r in chunk], label, job_deadline, job.thinking_level
         )
         batch_elapsed = time.monotonic() - batch_started
 
@@ -369,6 +374,7 @@ async def _enrich_with_stall_tolerance(
     items: list[tuple[str, str]],
     label: str,
     job_deadline: float,
+    thinking_level: ThinkingLevel | None = None,
 ) -> BatchOutcome:
     """enrich_batch(), but an upstream failure that outlasts chat_completion's own
     retries (a 429 from OpenRouter's shared free pool or a Google free-tier cap, a
@@ -413,7 +419,7 @@ async def _enrich_with_stall_tolerance(
         budget = min(settings.llm_batch_timeout_seconds, remaining)
         try:
             async with asyncio.timeout(budget):
-                return await enrich_batch(items)
+                return await enrich_batch(items, thinking_level=thinking_level)
         except TimeoutError:
             failure = LLMError(
                 f"attempt {attempt} exceeded its {budget:.0f}s ceiling", kind="timeout"

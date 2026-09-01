@@ -3,6 +3,7 @@ import logging
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
 
 from app.api.response_models.ingestion import IngestionResponse, IngestionSummary
+from app.config import ThinkingLevel
 from app.ingestion.csv_loader import CSVValidationError, parse_csv
 from app.ingestion.mappers import parse_row
 from app.llm.jobs import enqueue_enrichment_job
@@ -17,6 +18,11 @@ async def upload_csv(
     file: UploadFile = File(...),
     batch_size: int | None = Query(None, gt=0),
     max_transcripts: int | None = Query(None, gt=0),
+    thinking_level: ThinkingLevel | None = Query(
+        None,
+        description="Reasoning effort for this job's LLM calls. Omit to use the "
+        "LLM_THINKING_LEVEL server default.",
+    ),
 ) -> IngestionResponse:
     if not file.filename or not file.filename.lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="File must be a .csv file")
@@ -44,6 +50,7 @@ async def upload_csv(
         batch_size=batch_size,
         max_transcripts=max_transcripts,
         filename=file.filename,
+        thinking_level=thinking_level,
     )
 
     return IngestionResponse(

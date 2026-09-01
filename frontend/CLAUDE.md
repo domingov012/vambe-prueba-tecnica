@@ -115,10 +115,13 @@ frontend/
   needs no connection/reconnect machinery. Revisit only if we add token
   streaming or many concurrent viewers.
 
-- **`src/api.js`** — `uploadCsv(file)`, `listJobs()`, `getJob(id)`,
+- **`src/api.js`** — `uploadCsv(file, opts)`, `listJobs()`, `getJob(id)`,
   `getDashboardInsights()`. The only place that knows URL paths and response
   shapes. `request()` attaches `err.status` so callers can tell a 404 (no data
-  computed yet) from a real failure.
+  computed yet) from a real failure. `uploadCsv`'s `opts`
+  (`{ thinkingLevel, batchSize, maxTranscripts }`) become the endpoint's
+  optional query params; the upload page collects them in the `.opts` grid and
+  an empty control just omits the param (backend env default wins).
 
 - **Dashboard** (`src/pages/dashboard.js`) — one fetch of
   `GET /api/dashboard/insights`, one loading state, **eight sections** rendered
@@ -205,9 +208,13 @@ frontend/
    - `POST /api/ingestion/csv` — multipart CSV upload →
      `{ summary: { rows_received }, enrichment_job_id }`. The endpoint only
      validates + queues; de-dup, the cap and all DB writes happen in the job.
+     Optional query params `batch_size`, `max_transcripts` (positive ints) and
+     `thinking_level` (`minimal` | `low` | `high`) override the server defaults
+     per job; each is echoed back on the job document.
    - `GET  /api/jobs` — list enrichment jobs, newest first; each has
      `_id` (Beanie serializes the id under its `_id` alias), `filename`,
-     `status`, `rows_in_file`, `skipped_existing`, `total_candidates`
+     `status`, `batch_size`, `max_transcripts`, `thinking_level` (nullable),
+     `rows_in_file`, `skipped_existing`, `total_candidates`
      (0 until the job starts running — rows sent to the LLM after de-dup + cap),
      `processed_count`, `failed_count`, `failed_batches`, `error`, `created_at`.
      Two error fields, deliberately: `error` is the fatal reason and is only set

@@ -2,7 +2,7 @@ import logging
 
 import httpx
 
-from app.config import get_settings
+from app.config import ThinkingLevel, get_settings
 from app.llm.providers.base import LLMError, RateLimiter, post_with_retries
 
 logger = logging.getLogger(__name__)
@@ -29,13 +29,24 @@ async def close() -> None:
         _http = None
 
 
-async def chat_completion(messages: list[dict[str, str]]) -> str:
+async def chat_completion(
+    messages: list[dict[str, str]], *, thinking_level: ThinkingLevel | None = None
+) -> str:
     """Send a chat completion request to OpenRouter, retrying on rate limits/server errors."""
     if _http is None or _rate_limiter is None:
         raise RuntimeError("LLM client not initialized — call init_llm_client() first")
 
     settings = get_settings()
-    payload = {"model": settings.openrouter_model, "messages": messages}
+    payload: dict = {"model": settings.openrouter_model, "messages": messages}
+    if thinking_level is not None:
+        # OpenRouter has no `thinkingLevel`; map onto its `reasoning` knob —
+        # `minimal` turns reasoning off, `low`/`high` become `effort`. Ignored by
+        # models with no reasoning mode.
+        payload["reasoning"] = (
+            {"enabled": False}
+            if thinking_level is ThinkingLevel.minimal
+            else {"effort": thinking_level.value}
+        )
 
     response = await post_with_retries(
         _http, "/chat/completions", payload, _rate_limiter, "OpenRouter"
