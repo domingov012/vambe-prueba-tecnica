@@ -33,6 +33,14 @@ services:
       # baked into the image.
       - key: MONGO_URI
         sync: false
+
+      # Not a secret, so pinned here rather than prompted — and it MUST be
+      # pinned: config.py defaults to "vambe", so omitting this silently points
+      # the deployment at an empty database on the right cluster. Keep it equal
+      # to the MONGO_DB_NAME the enriched data was written under.
+      - key: MONGO_DB_NAME
+        value: meetings
+
       - key: LLM_PROVIDER
         sync: false
       # Set whichever matches LLM_PROVIDER; leave the other blank.
